@@ -1432,9 +1432,9 @@ STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume 
 BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't push extra strength load in the Endurance block. Today's fitting bonus: ${bonusSuggestion}
 STYLE: practical, <120 words unless asked. Concrete adjustments. Flag recovery conflicts. Don't invent data. Not medical advice; caution with pain.`;
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system,
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system,
           messages: next.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.text })) }),
       });
       const data = await res.json();
