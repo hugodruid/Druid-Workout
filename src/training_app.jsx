@@ -289,9 +289,9 @@ const BLOCKS = [
     // Why: muscle memory brings strength back fast, but tendons/connective tissue
     // re-adapt slower than muscle — and life stress draws on the same recovery budget.
     ramp: {
-      1: { label: "RE-ENTRY W1", text: "Do ~half the listed sets. RPE 6 — stop with 3–4 reps in reserve. Bodyweight only on 'weighted' moves. Don't test old numbers.",
+      1: { label: "RE-ENTRY W1", setsFactor: 0.5, text: "Do ~half the listed sets. RPE 6 — stop with 3–4 reps in reserve. Bodyweight only on 'weighted' moves. Don't test old numbers.",
            short: "Leave the session wanting more — the goal this week is just to show up and move well." },
-      2: { label: "RE-ENTRY W2", text: "Do ~¾ of the listed sets. RPE 7 — 2–3 reps in reserve. Still no added load. Note which moves feel back and which don't.",
+      2: { label: "RE-ENTRY W2", setsFactor: 0.75, text: "Do ~¾ of the listed sets. RPE 7 — 2–3 reps in reserve. Still no added load. Note which moves feel back and which don't.",
            short: "Closer to normal, still no grinding. Full sets and load arrive in week 3." },
     },
     days: {
@@ -482,6 +482,7 @@ export default function TrainingApp() {
   const [bonusLog, setBonusLog] = useState([]);      // [{date, id, title, kind, minutes}] completed bonus sessions
   const [hsTier, setHsTier] = useState(0);            // handstand routine tier index (0=Foundation)
   const [hsBonusLevel, setHsBonusLevel] = useState(0); // bonus handstand progression level
+  const [sets, setSets] = useState({});              // { "W3-1|Weighted pull-ups": {date, week, ex, reps:[6,6,5], kg} } inline set log
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -517,6 +518,7 @@ export default function TrainingApp() {
       setBonusLog(await safeGet("bonusLog", []));
       setHsTier(await safeGet("hsTier", 0));
       setHsBonusLevel(await safeGet("hsBonusLevel", 0));
+      setSets(await safeGet("sets", {}));
       setLoaded(true);
     })();
   }, []);
@@ -532,6 +534,7 @@ export default function TrainingApp() {
   const persistBonusLog = (v) => { setBonusLog(v); save("bonusLog", v); };
   const persistHsTier = (v) => { setHsTier(v); save("hsTier", v); };
   const persistHsBonusLevel = (v) => { setHsBonusLevel(v); save("hsBonusLevel", v); };
+  const persistSets = (v) => { setSets(v); save("sets", v); };
 
   const block = blockForWeek(week);
   const accent = block.accent;
@@ -572,7 +575,7 @@ export default function TrainingApp() {
   })();
 
   const exportData = () => {
-    const payload = { version: 1, cycleVersion: CYCLE_VERSION, exportedAt: new Date().toISOString(), currentWeek: week, logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel };
+    const payload = { version: 1, cycleVersion: CYCLE_VERSION, exportedAt: new Date().toISOString(), currentWeek: week, logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel, sets };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -604,6 +607,7 @@ export default function TrainingApp() {
         if (Array.isArray(d.bonusLog)) persistBonusLog(d.bonusLog);
         if (typeof d.hsTier === "number") persistHsTier(d.hsTier);
         if (typeof d.hsBonusLevel === "number") persistHsBonusLevel(d.hsBonusLevel);
+        if (sameCycle && d.sets && typeof d.sets === "object") persistSets(d.sets);
         alert(sameCycle ? "Data imported successfully." : "Imported logs from an earlier cycle. Week progress was left as-is (different block order).");
       } catch (err) {
         alert("Couldn't read that file — make sure it's a training-data export.");
@@ -651,9 +655,9 @@ export default function TrainingApp() {
       </nav>
 
       {!loaded ? <div style={S.muted}>Loading…</div>
-        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
-        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
-        : view === "progress" ? <ProgressView logs={logs} setLogs={persistLogs} accent={accent} />
+        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} sets={sets} setSets={persistSets} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
+        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} sets={sets} setSets={persistSets} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
+        : view === "progress" ? <ProgressView logs={logs} setLogs={persistLogs} sets={sets} accent={accent} />
         : view === "bonus" ? <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={accent} hsLevel={hsBonusLevel} setHsLevel={persistHsBonusLevel} />
         : view === "bike" ? <RideView rides={rides} setRides={persistRides} accent={accent} block={block} week={week} />
         : view === "sauna" ? <SaunaView saunas={saunas} setSaunas={persistSaunas} accent={accent} />
@@ -736,7 +740,7 @@ function FloorCard({ block, week, rides, compact }) {
   );
 }
 
-function TodayView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier, setHsTier, srcForDay }) {
+function TodayView({ week, accent, isDeload, ramp, rides, done, setDone, sets, setSets, hsTier, setHsTier, srcForDay }) {
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
@@ -744,8 +748,8 @@ function TodayView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier,
   const swapped = (k) => srcForDay(k) !== k;
   return (
     <div style={S.body}>
-      <SessionCard label={swapped(td) ? "TODAY · swapped" : "TODAY"} dayKey={td} week={week} session={get(td)} accent={accent} big done={done} setDone={setDone} hsTier={hsTier} setHsTier={setHsTier} />
-      <SessionCard label={swapped(tm) ? "TOMORROW · swapped" : "TOMORROW"} dayKey={tm} week={week} session={get(tm)} accent={accent} done={done} setDone={setDone} hsTier={hsTier} setHsTier={setHsTier} />
+      <SessionCard label={swapped(td) ? "TODAY · swapped" : "TODAY"} dayKey={td} week={week} session={get(td)} accent={accent} big done={done} setDone={setDone} sets={sets} setSets={setSets} hsTier={hsTier} setHsTier={setHsTier} />
+      <SessionCard label={swapped(tm) ? "TOMORROW · swapped" : "TOMORROW"} dayKey={tm} week={week} session={get(tm)} accent={accent} done={done} setDone={setDone} sets={sets} setSets={setSets} hsTier={hsTier} setHsTier={setHsTier} />
       <div style={{ ...S.tagBox, borderColor: accent }}>
         <strong style={{ color: accent }}>{block.name} block.</strong> {block.tag}
       </div>
@@ -759,7 +763,7 @@ function TodayView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier,
   );
 }
 
-function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
+function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, sets, setSets, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
   const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
   const completed = order.filter((k) => done[`W${week}-${k}`]).length;
@@ -809,7 +813,7 @@ function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier, 
             borderRadius: 14, transition: "outline 0.15s" }}>
             <SessionCard label={swapped ? `${DAY_NAMES[k].toUpperCase()} · swapped` : DAY_NAMES[k].toUpperCase()}
               dayKey={k} week={week} session={get(k)} accent={accent}
-              done={done} setDone={setDone} hsTier={hsTier} setHsTier={setHsTier} compact
+              done={done} setDone={setDone} sets={sets} setSets={setSets} hsTier={hsTier} setHsTier={setHsTier} compact
               swapControl={
                 <button onClick={() => onSwapClick(k)}
                   style={{ ...S.swapBtn, color: isPicking ? "#fff" : isTarget ? "#fff" : accent,
@@ -991,7 +995,7 @@ function IntervalTimer({ config, accent }) {
   );
 }
 
-function SessionCard({ label, dayKey, week, session, accent, big, compact, done, setDone, hsTier, setHsTier, swapControl }) {
+function SessionCard({ label, dayKey, week, session, accent, big, compact, done, setDone, sets, setSets, hsTier, setHsTier, swapControl }) {
   const sa = SAUNA_MEANING[session.sauna];
   const id = `W${week}-${dayKey}`;
   const isDone = !!done[id];
@@ -1026,7 +1030,8 @@ function SessionCard({ label, dayKey, week, session, accent, big, compact, done,
         </div>
       )}
       {showDetail && session.exercises && (
-        <ExerciseList exercises={session.exercises} accent={accent} deload={session.deload} ramp={session.ramp} defaultOpen={compact && expanded} />
+        <ExerciseList exercises={session.exercises} accent={accent} deload={session.deload} ramp={session.ramp} defaultOpen={big || (compact && expanded)}
+          slotId={id} week={week} sets={sets} setSets={setSets} />
       )}
       {showDetail && session.routine && (
         <div style={{ marginTop: 12 }}>
@@ -1045,7 +1050,8 @@ function SessionCard({ label, dayKey, week, session, accent, big, compact, done,
 }
 
 // Renders a main session's structured exercises with holds (DrillTimer) and intervals (IntervalTimer).
-function ExerciseList({ exercises, accent, deload, ramp, defaultOpen }) {
+function ExerciseList({ exercises, accent, deload, ramp, defaultOpen, slotId, week, sets, setSets }) {
+  const factor = deload ? 0.55 : ramp?.setsFactor ?? 1;
   const [show, setShow] = useState(!!defaultOpen);
   const timed = exercises.filter((e) => e.seconds || e.interval).length;
   return (
@@ -1075,10 +1081,121 @@ function ExerciseList({ exercises, accent, deload, ramp, defaultOpen }) {
               <div style={S.routineCue}>{it.cue}</div>
               {it.seconds && <DrillTimer seconds={it.seconds} perSide={it.perSide} accent={accent} />}
               {it.interval && <IntervalTimer config={deload ? { ...it.interval, rounds: Math.max(3, Math.round(it.interval.rounds * 0.6)) } : it.interval} accent={accent} />}
+              {isRepBased(it) && setSets && <SetLogger ex={it} slotId={slotId} week={week} store={sets || {}} setStore={setSets} factor={factor} accent={accent} />}
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// INLINE SET LOGGER — reps (and optional load) logged right under each exercise.
+// Keyed by the calendar SLOT (W3-1 = week 3, Monday) so a swapped/rescheduled
+// session keeps its own log; "last time" looks across slots by exercise name.
+// Tap an empty set → fills with last time's reps (or the target floor) — most sets
+// are one tap. Tap a filled set → nudge with − / + or clear it.
+// ============================================================================
+function parseDose(dose) {
+  const d = dose || "";
+  const m = /^(\d+)\s*×\s*(\d+)?(?:\s*[–-]\s*(\d+))?/.exec(d);
+  if (m) return { sets: +m[1], lo: m[2] ? +m[2] : null, hi: m[3] ? +m[3] : m[2] ? +m[2] : null };
+  const r = /^(\d+)(?:\s*[–-]\s*(\d+))?\s*\/\s*(leg|side)/.exec(d);
+  if (r) return { sets: 1, lo: +r[1], hi: r[2] ? +r[2] : +r[1] };
+  return { sets: 3, lo: null, hi: null };
+}
+const isRepBased = (ex) => !ex.seconds && !ex.interval && !/warm-up|cool-down|intervals?$/i.test(ex.name);
+const isLoadable = (ex) => /weight|squat|deadlift|dip|lunge|row/i.test(ex.name);
+
+function lastEntryFor(store, exName, excludeKey) {
+  let best = null;
+  for (const [k, v] of Object.entries(store)) {
+    if (k === excludeKey || v.ex !== exName || !v.reps?.some((x) => x != null)) continue;
+    if (!best || v.date > best.date) best = v;
+  }
+  return best;
+}
+
+function SetLogger({ ex, slotId, week, store, setStore, factor, accent }) {
+  const key = `${slotId}|${ex.name}`;
+  const entry = store[key];
+  const reps = entry?.reps || [];
+  const kg = entry?.kg;
+  const target = parseDose(ex.dose);
+  const planned = Math.max(1, Math.round(target.sets * factor));
+  const slots = Math.max(planned, reps.length);
+  const prev = lastEntryFor(store, ex.name, key);
+  const [active, setActive] = useState(null);
+
+  const write = (nextReps, nextKg = kg) => {
+    const r = [...nextReps]; while (r.length && r[r.length - 1] == null) r.pop();
+    const next = { ...store };
+    if (!r.length && (nextKg == null || nextKg === "")) delete next[key];
+    else next[key] = { date: entry?.date || todayKey(), week, ex: ex.name, reps: r.map((x) => (x == null ? null : x)),
+      ...(nextKg != null && nextKg !== "" ? { kg: Number(nextKg) } : {}) };
+    setStore(next);
+  };
+  const suggest = (i) => {
+    const pr = prev?.reps?.filter((x) => x != null) || [];
+    return pr[i] ?? pr[pr.length - 1] ?? reps.filter((x) => x != null).slice(-1)[0] ?? target.lo ?? 5;
+  };
+  const tap = (i) => {
+    if (reps[i] == null) { const r = [...reps]; r[i] = suggest(i); write(r); setActive(null); }
+    else setActive(active === i ? null : i);
+  };
+  const nudge = (i, delta) => { const r = [...reps]; r[i] = Math.max(0, (r[i] || 0) + delta); write(r); };
+  const setVal = (i, v) => { const r = [...reps]; r[i] = v === "" ? null : Math.max(0, parseInt(v, 10) || 0); write(r); };
+  const clear = (i) => { const r = [...reps]; r[i] = null; write(r); setActive(null); };
+
+  const logged = reps.filter((x) => x != null);
+  const total = logged.reduce((a, b) => a + b, 0);
+  const allTop = target.hi != null && logged.length >= planned && logged.every((x) => x >= target.hi);
+  const chipColor = (v) => v == null ? null : target.lo == null ? accent : v >= (target.hi ?? target.lo) ? "#6a8d3f" : v >= target.lo ? accent : "#c9962e";
+  const fmt = (e) => e.reps.filter((x) => x != null).join("·") + (e.kg ? ` @ ${e.kg > 0 ? "+" : ""}${e.kg}kg` : "");
+
+  return (
+    <div style={S.setWrap}>
+      <div style={S.setRow}>
+        {Array.from({ length: slots }).map((_, i) => {
+          const v = reps[i]; const c = chipColor(v);
+          return (
+            <button key={i} onClick={() => tap(i)} aria-label={`Set ${i + 1}`}
+              style={{ ...S.setChip,
+                ...(v != null ? { background: c, borderColor: c, color: "#fff" } : { color: "#b5afa2" }),
+                ...(active === i ? { outline: `2px solid ${accent}`, outlineOffset: 2 } : {}) }}>
+              {v != null ? v : <span style={{ fontSize: 11 }}>{suggest(i)}</span>}
+            </button>
+          );
+        })}
+        <button onClick={() => { const r = [...reps]; r[slots] = suggest(slots); write(r); }} style={S.setAdd} title="Add a set">+</button>
+        {isLoadable(ex) && (
+          <label style={S.kgWrap}>
+            <input type="number" inputMode="decimal" placeholder={prev?.kg != null ? String(prev.kg) : "kg"} value={kg ?? ""}
+              onChange={(e) => write(reps, e.target.value)} style={S.kgInput} />
+            <span style={S.kgUnit}>kg</span>
+          </label>
+        )}
+      </div>
+
+      {active != null && reps[active] != null && (
+        <div style={S.setEditor}>
+          <span style={S.muted2}>Set {active + 1}</span>
+          <button onClick={() => nudge(active, -1)} style={S.setNudge}>−</button>
+          <input type="number" inputMode="numeric" value={reps[active] ?? ""} onChange={(e) => setVal(active, e.target.value)} style={S.setEditInput} />
+          <button onClick={() => nudge(active, 1)} style={S.setNudge}>+</button>
+          <button onClick={() => clear(active)} style={S.timerReset}>clear</button>
+          <button onClick={() => setActive(null)} style={{ ...S.setNudge, background: accent, color: "#fff", borderColor: accent }}>✓</button>
+        </div>
+      )}
+
+      <div style={S.setMeta}>
+        {logged.length > 0
+          ? <span><strong style={{ color: "#2a261f" }}>{logged.length}/{planned} sets · {total} reps</strong></span>
+          : <span>Tap a set to log it{factor < 1 ? ` · ${planned} sets this week` : ""}</span>}
+        {prev && <span> · last {prev.date.slice(5)}: {fmt(prev)}</span>}
+      </div>
+      {allTop && <div style={{ ...S.setMeta, color: "#6a8d3f", fontWeight: 600 }}>↑ All sets at the top of the range — add load or a harder progression next time.</div>}
     </div>
   );
 }
@@ -1326,7 +1443,13 @@ function BonusHeatmap({ bonusLog, accent }) {
   );
 }
 
-function ProgressView({ logs, setLogs, accent }) {
+function ProgressView({ logs, setLogs, sets, accent }) {
+  // exercises that have inline set logs, newest-first
+  const setEntries = Object.values(sets || {}).filter((e) => e.reps?.some((x) => x != null));
+  const exNames = [...new Set([...setEntries].sort((a, b) => (a.date < b.date ? 1 : -1)).map((e) => e.ex))];
+  const [ex, setEx] = useState(exNames[0] || "");
+  const exSeries = setEntries.filter((e) => e.ex === ex).sort((a, b) => (a.date < b.date ? -1 : 1))
+    .map((e) => { const r = e.reps.filter((x) => x != null); return { date: e.date.slice(5), total: r.reduce((a, b) => a + b, 0), best: Math.max(...r), kg: e.kg }; });
   const [lift, setLift] = useState(LIFTS[0]);
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
@@ -1340,6 +1463,30 @@ function ProgressView({ logs, setLogs, accent }) {
   const recent = [...logs].reverse().slice(0, 12);
   return (
     <div style={S.body}>
+      {exNames.length > 0 && (
+        <div style={S.card}>
+          <div style={S.cardTop}>
+            <h2 style={S.cardTitle}>Session sets</h2>
+            <span style={S.muted2}>{exSeries.length} sessions</span>
+          </div>
+          <select value={ex} onChange={(e) => setEx(e.target.value)} style={{ ...S.select, width: "100%", marginBottom: 8 }}>
+            {exNames.map((n) => <option key={n}>{n}</option>)}
+          </select>
+          {exSeries.length < 2 ? <p style={S.muted}>Log this exercise in two sessions to see a trend. Latest: {exSeries.slice(-1)[0]?.total} reps.</p> : (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={exSeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e7e2d8" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#6b665d" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#6b665d" }} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #ddd", fontSize: 13 }} />
+                <Line type="monotone" dataKey="total" name="total reps" stroke={accent} strokeWidth={2.5} dot={{ r: 3, fill: accent }} />
+                <Line type="monotone" dataKey="best" name="best set" stroke="#9a958c" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+          <div style={S.muted2}>Logged directly under each exercise in Today / Week. Solid = total reps, dashed = best set.</div>
+        </div>
+      )}
       <div style={S.card}>
         <h2 style={S.cardTitle}>Log a number</h2>
         <div style={S.formRow}>
@@ -1757,6 +1904,17 @@ const S = {
   swapResetBtn: { fontSize: 12, fontWeight: 600, fontFamily: FONT_BODY, padding: "5px 10px", borderRadius: 8, border: "1px solid #b7c79a", background: "#fff", cursor: "pointer", color: "#4a5a30", whiteSpace: "nowrap" },
   swapHint: { fontSize: 12.5, lineHeight: 1.45, padding: "9px 12px", background: "#fff", border: "1px dashed #cfc8b8", borderRadius: 10, color: "#5a554c" },
   swapBtn: { fontSize: 12, fontWeight: 700, fontFamily: FONT_BODY, height: 30, padding: "0 12px", borderRadius: 8, border: "1px solid", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 },
+  setWrap: { marginTop: 8 },
+  setRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 },
+  setChip: { minWidth: 40, height: 40, padding: "0 6px", borderRadius: 10, border: "1.5px dashed #d8d2c5", background: "#fff", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" },
+  setAdd: { width: 32, height: 40, borderRadius: 10, border: "1px solid #e2dcd0", background: "#faf8f3", color: "#9a958c", fontSize: 18, cursor: "pointer" },
+  kgWrap: { display: "flex", alignItems: "center", gap: 3, marginLeft: "auto" },
+  kgInput: { width: 58, height: 40, padding: "0 8px", borderRadius: 10, border: "1px solid #e2dcd0", fontFamily: FONT_BODY, fontSize: 14, textAlign: "right" },
+  kgUnit: { fontSize: 12, color: "#9a958c" },
+  setEditor: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, padding: "6px 8px", background: "#faf8f3", borderRadius: 10 },
+  setNudge: { width: 38, height: 38, borderRadius: 10, border: "1px solid #e2dcd0", background: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer" },
+  setEditInput: { width: 56, height: 38, textAlign: "center", borderRadius: 10, border: "1px solid #e2dcd0", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17 },
+  setMeta: { fontSize: 12, color: "#9a958c", marginTop: 6, lineHeight: 1.4 },
   formRow: { display: "flex", gap: 8 },
   quickMinBox: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 58, background: "#faf7f0", border: "1px solid #e2dcd0", borderRadius: 9, padding: 4 },
   quickMinInput: { width: 44, border: "none", background: "transparent", textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#2a261f" },
