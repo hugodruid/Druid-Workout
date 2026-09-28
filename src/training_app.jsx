@@ -277,6 +277,16 @@ const BLOCKS = [
   {
     id: "strength", name: "Strength", weeks: [1, 8], accent: "#2e6e8e",
     tag: "Rebuild first, then overload. Weeks 1–2 are re-entry after the break; real progression starts week 3. Heavy legs are the gap bodyweight can't fill.",
+    // Endurance in a strength block = a floor, not a goal. Two layers:
+    //  1. Every week: 2 easy rides (commutes count) — keeps capillaries/mitochondria
+    //     from fading further at near-zero recovery cost.
+    //  2. Weeks 4, 6, 8 (Sat): one short, optional interval "touch" — primes the
+    //     Endurance block that follows in week 9 so it doesn't start from zero.
+    //     Placed on Saturday: 48h+ before Monday (upper body) and far from Wed legs.
+    aerobicFloor: "Every week: 2 easy rides (commutes count), conversational pace. Weeks 4, 6 and 8: one optional short interval touch on Saturday — skip it without guilt if sleep or stress is off.",
+    weekOverrides: {
+      4: { 6: "INTERVAL_TOUCH" }, 6: { 6: "INTERVAL_TOUCH" }, 8: { 6: "INTERVAL_TOUCH" },
+    },
     // Re-entry ramp after a ~3-month layoff. Keyed by week-within-block.
     // Why: muscle memory brings strength back fast, but tendons/connective tissue
     // re-adapt slower than muscle — and life stress draws on the same recovery budget.
@@ -309,7 +319,7 @@ const BLOCKS = [
           { name: "Front-lever progression", dose: "4 × 10 sec", seconds: 10, cue: "Tuck → advanced tuck → straddle as you progress. The timer caps each clean hold." },
           { name: "L-sit hold", dose: "3 × 15 sec", seconds: 15, cue: "On the bar, parallettes, or floor. Legs straight, push the floor away. Tuck to scale." },
         ] },
-      6: { type: "open", title: "Open / hike or easy ride", body: "Rest, or an easy bike/hike — your aerobic floor. Keep it conversational: in this block endurance only needs to not disappear, and hard rides eat the recovery the lifting needs.", sauna: "best" },
+      6: { type: "open", title: "Open / easy ride or hike", body: "Rest, or an easy ride/hike. Counts toward your aerobic floor (2 easy rides/week). Keep it conversational — hard rides eat the recovery the lifting needs.", sauna: "best" },
       0: { type: "open", title: "Open / rest", body: "Full rest. Easy bike commutes alone keep an aerobic floor under you.", sauna: "best" },
     },
   },
@@ -368,6 +378,25 @@ const BLOCKS = [
   },
 ];
 
+// Optional short VO2 "touch" used inside the Strength block (see weekOverrides).
+const INTERVAL_TOUCH = {
+  type: "optional", title: "Endurance touch (optional)",
+  body: "Short interval primer: 10 min easy → 4 × (1 min hard / 2 min easy) → 5 min easy. ~25 min on the bike. Only if you slept OK and stress is manageable — otherwise just ride easy.",
+  sauna: "good",
+  exercises: [
+    { name: "Warm-up", dose: "10 min easy", seconds: 600, cue: "Easy spin, last 2 min a bit brisker." },
+    { name: "Hard / easy intervals", dose: "4 rounds", cue: "Hard but controlled — about 8/10, not all-out. The goal is to remind the system, not to exhaust it.", interval: { work: 60, rest: 120, rounds: 4, workLabel: "HARD", restLabel: "easy" } },
+    { name: "Cool-down", dose: "5 min easy", seconds: 300, cue: "Let the heart rate settle." },
+  ],
+};
+// Resolve which session sits on a canonical dayKey in a given week (block template + per-week overrides).
+function daySession(block, week, dayKey) {
+  const wib = week - block.weeks[0] + 1;
+  const o = block.weekOverrides?.[wib]?.[dayKey];
+  if (o === "INTERVAL_TOUCH") return INTERVAL_TOUCH;
+  return o || block.days[dayKey];
+}
+
 const SAUNA_MEANING = {
   best: { label: "Sauna: ideal today", color: "#6a8d3f", note: "Rest/cardio day — pure recovery, nothing to blunt." },
   ideal: { label: "Sauna: great pairing", color: "#6a8d3f", note: "Low-fatigue day. On mobility days, sauna BEFORE stretching deepens range." },
@@ -377,7 +406,7 @@ const SAUNA_MEANING = {
 };
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const TYPE_LABEL = { main: "Main session", short: "Short session", open: "Open day" };
+const TYPE_LABEL = { main: "Main session", short: "Short session", open: "Open day", optional: "Optional" };
 
 // ---------- helpers ----------
 function blockForWeek(week) {
@@ -398,7 +427,7 @@ function rampFor(week) {
   return b.ramp ? b.ramp[week - b.weeks[0] + 1] || null : null;
 }
 function applyRamp(session, r) {
-  if (!r || session.type === "open") return session;
+  if (!r || session.type === "open" || session.type === "optional") return session;
   if (session.type === "short") return { ...session, body: session.body + ` (${r.short})` };
   return { ...session, title: session.title + " — re-entry", ramp: r, body: `${r.label}: ${r.text} ` + session.body };
 }
@@ -410,6 +439,8 @@ function shapeSession(s, isDeload, ramp) {
 // deload: lighten a main session's prescription, leave skill/open mostly alone
 function applyDeload(session) {
   if (session.type === "open") return session;
+  if (session.type === "optional")
+    return { ...session, title: "Easy ride (deload)", body: "Deload week — skip the intervals, just an easy ride or rest.", exercises: undefined };
   if (session.type === "short")
     return { ...session, body: session.body + " (deload: keep it light, just movement quality.)" };
   return {
@@ -523,7 +554,7 @@ export default function TrainingApp() {
     const warns = [];
     for (let i = 0; i < order.length - 1; i++) {
       const d1 = order[i], d2 = order[i + 1];
-      const s1 = block.days[srcForDay(d1)], s2 = block.days[srcForDay(d2)];
+      const s1 = daySession(block, week, srcForDay(d1)), s2 = daySession(block, week, srcForDay(d2));
       if (s1?.type === "main" && s2?.type === "main") warns.push([d1, d2]);
     }
     return warns;
@@ -665,7 +696,7 @@ function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsT
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
-  const get = (k) => shapeSession(block.days[srcForDay(k)], isDeload, ramp);
+  const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
   const swapped = (k) => srcForDay(k) !== k;
   return (
     <div style={S.body}>
@@ -674,6 +705,11 @@ function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsT
       <div style={{ ...S.tagBox, borderColor: accent }}>
         <strong style={{ color: accent }}>{block.name} block.</strong> {block.tag}
       </div>
+      {block.aerobicFloor && (
+        <div style={{ ...S.tagBox, borderColor: "#d9543f" }}>
+          <strong style={{ color: "#d9543f" }}>Endurance this block.</strong> {block.aerobicFloor}
+        </div>
+      )}
       {ramp && !isDeload && (
         <div style={{ ...S.tagBox, borderColor: accent }}>
           <strong style={{ color: accent }}>Why ease in?</strong> Strength returns fast after a break (the nervous-system skill is largely retained), but tendons re-adapt more slowly than muscle — and life stress draws on the same recovery budget as training. Two easy weeks cost almost nothing and buy the next six.
@@ -685,7 +721,7 @@ function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsT
 
 function WeekView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
-  const get = (k) => shapeSession(block.days[srcForDay(k)], isDeload, ramp);
+  const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
   const completed = order.filter((k) => done[`W${week}-${k}`]).length;
   const [swapMode, setSwapMode] = useState(null); // calendar dayKey awaiting a target, or null
 
@@ -701,6 +737,11 @@ function WeekView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTi
       <div style={{ ...S.tagBox, borderColor: accent, marginBottom: 2 }}>
         <strong style={{ color: accent }}>{completed}/7 logged this week.</strong> Tap a card to mark done · ⇄ to swap days.
       </div>
+      {block.aerobicFloor && (
+        <div style={{ ...S.tagBox, borderColor: "#d9543f" }}>
+          <strong style={{ color: "#d9543f" }}>Endurance floor:</strong> 2 easy rides this week (commutes count).
+        </div>
+      )}
 
       {hardDayWarnings.length > 0 && (
         <div style={S.warnBox}>
@@ -1448,7 +1489,7 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp,
   const bonusSuggestion = (() => {
     const todayIso = new Date().toISOString().slice(0, 10);
     const td = new Date().getDay();
-    const todaySession = block.days[td];
+    const todaySession = daySession(block, week, td);
     const doneToday = (bonusLog || []).filter((b) => b.date === todayIso);
     const didSkillToday = doneToday.some((b) => b.kind === "skill");
     const didMobToday = doneToday.some((b) => b.kind === "mobility");
@@ -1490,7 +1531,7 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp,
     const bonusSummary = wkBonus.length ? `${wkBonus.filter(b=>b.kind==="skill").length} skill + ${wkBonus.filter(b=>b.kind==="mobility").length} mobility this week` : "none this week";
     const system = `You are a concise S&C coach in a training app.
 PROGRAM: 24-week concurrent, CYCLE 2, 8-week blocks — Strength(w1-8), Endurance(w9-16), Flexibility(w17-24). One priority/block, others maintain (~1/3 vol).
-CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Keep easy bike commutes as an aerobic floor; no hard rides needed this block. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, 32km bike commute; plans rings+kettlebell.
+CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Endurance in this block is a floor: 2 easy rides/week (commutes count), plus an optional short interval touch (4×1min hard/2min easy) on Saturday of weeks 4, 6 and 8 to prime the Endurance block — skip it if sleep/stress is poor. No other hard rides. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, 32km bike commute; plans rings+kettlebell.
 RECOVERY/SAUNA: best on rest/cardio/short days; not right after heavy strength (blunts hypertrophy signal); before stretching deepens range. ~48h between HARD same-tissue sessions; sub-maximal skill/mobility can be daily.
 STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume ~40-50%, reps in reserve)" : ramp ? `, ${ramp.label}: ${ramp.text}` : ""}. Logs: ${logSummary}. Sauna: ${saunaSummary}. Bike: ${rideSummary}. Bonus: ${bonusSummary}.
 BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
