@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { READINESS, readinessLevel, setFactor, plannedSets, exKind, isLoadable, parseDose, vals, lastEntryFor, progressionFor } from "./progression.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 // ============================================================================
@@ -465,126 +466,189 @@ function applyDeload(session) {
 }
 
 // Existing names kept verbatim so older log entries still chart under the same lift.
-const LIFTS = ["Pull-ups (reps)", "HSPU (reps)", "Push-ups (reps)", "Dips (reps)", "Weighted pull-up (+kg)", "Squat load (kg)", "RDL load (kg)", "Run interval (count)", "Split depth (cm to floor)"];
+// Manual measures = only what session logging doesn't capture (tests, body metrics).
+// Names of older entries still chart; they just aren't offered for new entries.
+const MEASURES = ["Split depth (cm to floor)", "Freestanding handstand (sec)", "Max pull-ups (test)", "Max push-ups (test)", "Bodyweight (kg)", "Resting HR (bpm)"];
+
+// ---------- program calendar: the week derives from a start date ----------
+const DAY_MS = 864e5;
+const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseIso = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (iso, n) => { const d = parseIso(iso); d.setDate(d.getDate() + n); return isoLocal(d); };
+const mondayOf = (iso) => { const d = parseIso(iso); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return isoLocal(d); };
+function weekFromStart(startIso) {
+  const days = Math.round((parseIso(todayKey()) - parseIso(mondayOf(startIso))) / DAY_MS);
+  return Math.min(24, Math.max(1, Math.floor(days / 7) + 1));
+}
+const fmtDate = (iso) => parseIso(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+
+// ---------- cloud sync (Vercel + Upstash Redis via /api/sync) ----------
+// Local-first: every change saves to this device immediately, then pushes in the
+// background. The server merges per key (newest edit wins), so a sauna logged on
+// the laptop and sets logged on the phone both survive.
+const SYNC_KEYS = ["logs", "saunas", "rides", "done", "deloads", "swaps", "bonusLog", "hsTier", "hsBonusLevel", "sets", "startDate", "readiness", "targets"];
+const isEmptyVal = (v) => v == null || (Array.isArray(v) ? v.length === 0 : typeof v === "object" ? Object.keys(v).length === 0 : false);
+const localGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const localSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 
 // ============================================================================
 // MAIN
 // ============================================================================
 export default function TrainingApp() {
-  const [week, setWeek] = useState(1);
-  const [view, setView] = useState("today");
+  const [startDate, setStartDateRaw] = useState(mondayKey());
   const [logs, setLogs] = useState([]);
   const [saunas, setSaunas] = useState([]);          // [{date, minutes, context, note}]
-  const [rides, setRides] = useState([]);            // [{date, km, effort, note}]
-  const [done, setDone] = useState({});              // { "W3-1": true }  week+dayKey
+  const [rides, setRides] = useState([]);            // [{date, km, minutes, effort, kind, note}]
+  const [done, setDone] = useState({});              // { "W3-1": true|false } explicit override of auto-tick
   const [deloads, setDeloads] = useState({});        // { "3": true } week -> deload on
   const [swaps, setSwaps] = useState({});            // { week: { dayKey: srcDayKey } } per-week session overrides
-  const [bonusLog, setBonusLog] = useState([]);      // [{date, id, title, kind, minutes}] completed bonus sessions
-  const [hsTier, setHsTier] = useState(0);            // handstand routine tier index (0=Foundation)
-  const [hsBonusLevel, setHsBonusLevel] = useState(0); // bonus handstand progression level
-  const [sets, setSets] = useState({});              // { "W3-1|Weighted pull-ups": {date, week, ex, reps:[6,6,5], kg} } inline set log
+  const [bonusLog, setBonusLog] = useState([]);      // [{date, id, title, kind, minutes}]
+  const [hsTier, setHsTier] = useState(0);
+  const [hsBonusLevel, setHsBonusLevel] = useState(0);
+  const [sets, setSets] = useState({});              // { "W3-1|Weighted pull-ups": {date, week, ex, kind, reps:[..], kg, feel, target, planned, readiness} }
+  const [readiness, setReadiness] = useState({});    // { "2026-09-28": {sleep, stress} }
+  const [targets, setTargets] = useState({});        // { "L-sit hold": {sec, date} } manual hold-target overrides
   const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState("today");
+  const [logSub, setLogSub] = useState("cardio");
+  const [viewWeek, setViewWeek] = useState(null);    // Week-tab browsing; null = follow the calendar
+  const [showSettings, setShowSettings] = useState(false);
+  const [sync, setSync] = useState({ state: localGet("syncToken") ? "idle" : "off" });
+
+  const setters = { logs: setLogs, saunas: setSaunas, rides: setRides, done: setDone, deloads: setDeloads, swaps: setSwaps,
+    bonusLog: setBonusLog, hsTier: setHsTier, hsBonusLevel: setHsBonusLevel, sets: setSets, startDate: setStartDateRaw,
+    readiness: setReadiness, targets: setTargets };
+  const dataRef = useRef({});      // latest value of every synced key (closures go stale; refs don't)
+  const metaRef = useRef({});      // key -> last-edited ms on this device
+  const fromStore = useRef({});    // key -> value came from storage (vs. a fresh default)
+  const pushTimer = useRef(null);
 
   useEffect(() => {
     (async () => {
       const safeGet = async (k, def) => {
-        try { const v = await Store.get(k); return v != null ? JSON.parse(v) : def; }
+        try { const v = await Store.get(k); if (v != null) { fromStore.current[k] = true; return JSON.parse(v); } return def; }
         catch (e) { return def; }
       };
       // ---- cycle migration: archive old week-structured state, restart at week 1 ----
       const cycle = await safeGet("cycleVersion", null);
       if (cycle !== CYCLE_VERSION) {
-        const old = {
-          currentWeek: await safeGet("currentWeek", null),
-          done: await safeGet("done", {}),
-          deloads: await safeGet("deloads", {}),
-          swaps: await safeGet("swaps", {}),
-        };
+        const old = { currentWeek: await safeGet("currentWeek", null), done: await safeGet("done", {}),
+          deloads: await safeGet("deloads", {}), swaps: await safeGet("swaps", {}) };
         const hadHistory = old.currentWeek != null || Object.keys(old.done).length > 0;
-        const existingArchive = await safeGet("archiveCycle1", null);
-        if (hadHistory && !existingArchive) {
-          await save("archiveCycle1", { program: "Endurance → Strength → Flexibility", archivedAt: new Date().toISOString(), ...old });
-        }
-        await save("currentWeek", 1); await save("done", {}); await save("deloads", {}); await save("swaps", {});
-        await save("cycleVersion", CYCLE_VERSION);
+        if (hadHistory && !(await safeGet("archiveCycle1", null)))
+          await Store.set("archiveCycle1", JSON.stringify({ program: "Endurance → Strength → Flexibility", archivedAt: new Date().toISOString(), ...old }));
+        for (const [k, v] of [["done", {}], ["deloads", {}], ["swaps", {}], ["startDate", mondayKey()], ["cycleVersion", CYCLE_VERSION]])
+          await Store.set(k, JSON.stringify(v));
       }
-      setWeek(await safeGet("currentWeek", 1));
-      setLogs(await safeGet("logs", []));
-      setSaunas(await safeGet("saunas", []));
-      setRides(await safeGet("rides", []));
-      setDone(await safeGet("done", {}));
-      setDeloads(await safeGet("deloads", {}));
-      setSwaps(await safeGet("swaps", {}));
-      setBonusLog(await safeGet("bonusLog", []));
-      setHsTier(await safeGet("hsTier", 0));
-      setHsBonusLevel(await safeGet("hsBonusLevel", 0));
-      setSets(await safeGet("sets", {}));
+      // ---- start-date migration: older versions stored a manual week number ----
+      let sd = await safeGet("startDate", null);
+      if (!sd) {
+        const cw = await safeGet("currentWeek", null);
+        sd = addDays(mondayKey(), -7 * ((cw || 1) - 1));
+        if (cw != null) { fromStore.current.startDate = true; await Store.set("startDate", JSON.stringify(sd)); }
+      }
+      const loadedVals = {
+        startDate: sd, logs: await safeGet("logs", []), saunas: await safeGet("saunas", []), rides: await safeGet("rides", []),
+        done: await safeGet("done", {}), deloads: await safeGet("deloads", {}), swaps: await safeGet("swaps", {}),
+        bonusLog: await safeGet("bonusLog", []), hsTier: await safeGet("hsTier", 0), hsBonusLevel: await safeGet("hsBonusLevel", 0),
+        sets: await safeGet("sets", {}), readiness: await safeGet("readiness", {}), targets: await safeGet("targets", {}),
+      };
+      for (const [k, v] of Object.entries(loadedVals)) { setters[k](v); dataRef.current[k] = v; }
+      metaRef.current = await safeGet("syncMeta", {});
       setLoaded(true);
+      syncNow();
     })();
+    const onVis = () => { if (document.visibilityState === "visible") syncNow(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+    // eslint-disable-next-line
   }, []);
 
-  const save = async (k, v) => { try { await Store.set(k, JSON.stringify(v)); } catch (e) {} };
-  const persistWeek = (w) => { setWeek(w); save("currentWeek", w); };
-  const persistLogs = (v) => { setLogs(v); save("logs", v); };
-  const persistSaunas = (v) => { setSaunas(v); save("saunas", v); };
-  const persistRides = (v) => { setRides(v); save("rides", v); };
-  const persistDone = (v) => { setDone(v); save("done", v); };
-  const persistDeloads = (v) => { setDeloads(v); save("deloads", v); };
-  const persistSwaps = (v) => { setSwaps(v); save("swaps", v); };
-  const persistBonusLog = (v) => { setBonusLog(v); save("bonusLog", v); };
-  const persistHsTier = (v) => { setHsTier(v); save("hsTier", v); };
-  const persistHsBonusLevel = (v) => { setHsBonusLevel(v); save("hsBonusLevel", v); };
-  const persistSets = (v) => { setSets(v); save("sets", v); };
+  // ---- sync ----
+  const syncNow = async () => {
+    const token = localGet("syncToken");
+    if (!token) { setSync({ state: "off" }); return; }
+    const data = {}, meta = {};
+    for (const k of SYNC_KEYS) {
+      const v = dataRef.current[k], m = metaRef.current[k] || 0;
+      // never push an untouched default — a fresh device must not overwrite real history
+      if (m > 0 || (fromStore.current[k] && !isEmptyVal(v))) { data[k] = v; meta[k] = m; }
+    }
+    setSync((s) => ({ ...s, state: "syncing" }));
+    try {
+      const r = await fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json", "x-sync-token": token }, body: JSON.stringify({ data, meta }) });
+      if (r.status === 501) { setSync({ state: "unconfigured" }); return; }
+      if (r.status === 401) { setSync({ state: "badtoken" }); return; }
+      if (!r.ok) throw new Error(String(r.status));
+      const out = await r.json();
+      for (const k of SYNC_KEYS) {
+        const rt = out.meta?.[k] || 0;
+        if (out.data && k in out.data && rt > (metaRef.current[k] || 0)) {
+          const v = out.data[k];
+          setters[k](v); dataRef.current[k] = v; metaRef.current[k] = rt; fromStore.current[k] = true;
+          Store.set(k, JSON.stringify(v));
+        } else if (rt && !metaRef.current[k]) metaRef.current[k] = rt;   // server stamped our first upload
+      }
+      Store.set("syncMeta", JSON.stringify(metaRef.current));
+      setSync({ state: "ok", at: Date.now() });
+    } catch (e) { setSync({ state: "offline" }); }
+  };
+  const schedulePush = () => { clearTimeout(pushTimer.current); pushTimer.current = setTimeout(syncNow, 1500); };
 
+  const save = (k, v) => {
+    dataRef.current[k] = v; metaRef.current[k] = Date.now();
+    Store.set(k, JSON.stringify(v)); Store.set("syncMeta", JSON.stringify(metaRef.current));
+    if (localGet("syncToken")) schedulePush();
+  };
+  const persist = (k) => (v) => { setters[k](v); save(k, v); };
+  const persistLogs = persist("logs"), persistSaunas = persist("saunas"), persistRides = persist("rides"),
+    persistDone = persist("done"), persistDeloads = persist("deloads"), persistSwaps = persist("swaps"),
+    persistBonusLog = persist("bonusLog"), persistHsTier = persist("hsTier"), persistHsBonusLevel = persist("hsBonusLevel"),
+    persistSets = persist("sets"), persistReadiness = persist("readiness"), persistTargets = persist("targets"),
+    persistStartDate = persist("startDate");
+
+  // ---- calendar ----
+  const currentWeek = weekFromStart(startDate);
+  const week = viewWeek ?? currentWeek;               // the week the Week tab is showing
+  const curBlock = blockForWeek(currentWeek);
   const block = blockForWeek(week);
-  const accent = block.accent;
-  const isDeload = !!deloads[week];
-  const ramp = rampFor(week);
+  const accent = (view === "week" ? block : curBlock).accent;
+  const isDeloadW = (w) => !!deloads[w];
+  const curRamp = rampFor(currentWeek);
+  const todayLevel = readinessLevel(readiness[todayKey()]);
 
-  const toggleDeload = () => persistDeloads({ ...deloads, [week]: !isDeload });
-
-  // ---- per-week session swaps ----
-  const weekSwaps = swaps[week] || {};
-  // which canonical dayKey's session actually sits on calendar day k this week
-  const srcForDay = (k) => (weekSwaps[k] !== undefined ? weekSwaps[k] : k);
-  // perform a swap between two calendar days for the current week (swaps their sources)
+  // ---- per-week session swaps (for the week being viewed) ----
+  const swapsFor = (w) => swaps[w] || {};
+  const srcFor = (w) => (k) => (swapsFor(w)[k] !== undefined ? swapsFor(w)[k] : k);
   const swapDays = (a, b) => {
-    const cur = { ...(swaps[week] || {}) };
+    const cur = { ...swapsFor(week) };
     const srcA = cur[a] !== undefined ? cur[a] : a;
     const srcB = cur[b] !== undefined ? cur[b] : b;
     cur[a] = srcB; cur[b] = srcA;
-    // clean up identity mappings to keep the object tidy / detect "no override"
     Object.keys(cur).forEach((k) => { if (Number(cur[k]) === Number(k)) delete cur[k]; });
     const next = { ...swaps };
     if (Object.keys(cur).length === 0) delete next[week]; else next[week] = cur;
     persistSwaps(next);
   };
   const resetWeekSwaps = () => { const next = { ...swaps }; delete next[week]; persistSwaps(next); };
-  const hasSwaps = Object.keys(weekSwaps).length > 0;
-
-  // back-to-back hard-day check: two "main" sessions on consecutive calendar days
   const hardDayWarnings = (() => {
-    const order = [1, 2, 3, 4, 5, 6, 0];
-    const warns = [];
+    const order = [1, 2, 3, 4, 5, 6, 0], warns = [], src = srcFor(week);
     for (let i = 0; i < order.length - 1; i++) {
-      const d1 = order[i], d2 = order[i + 1];
-      const s1 = daySession(block, week, srcForDay(d1)), s2 = daySession(block, week, srcForDay(d2));
-      if (s1?.type === "main" && s2?.type === "main") warns.push([d1, d2]);
+      const s1 = daySession(block, week, src(order[i])), s2 = daySession(block, week, src(order[i + 1]));
+      if (s1?.type === "main" && s2?.type === "main") warns.push([order[i], order[i + 1]]);
     }
     return warns;
   })();
 
   const exportData = () => {
-    const payload = { version: 1, cycleVersion: CYCLE_VERSION, exportedAt: new Date().toISOString(), currentWeek: week, logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel, sets };
+    const payload = { version: 2, cycleVersion: CYCLE_VERSION, exportedAt: new Date().toISOString(), startDate, currentWeek,
+      logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel, sets, readiness, targets };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `training-data-${todayKey()}.json`;
-    a.click();
+    a.href = url; a.download = `training-data-${todayKey()}.json`; a.click();
     URL.revokeObjectURL(url);
   };
-
   const importData = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -592,22 +656,23 @@ export default function TrainingApp() {
     reader.onload = () => {
       try {
         const d = JSON.parse(reader.result);
-        // Exports from the old cycle carry week numbers from a different block order —
-        // import their dated logs, but don't let their week/done state overwrite this cycle.
         const sameCycle = d.cycleVersion === CYCLE_VERSION;
         if (sameCycle) {
-        if (d.currentWeek != null) persistWeek(d.currentWeek);
+          if (d.startDate) persistStartDate(d.startDate);
+          else if (d.currentWeek != null) persistStartDate(addDays(mondayKey(), -7 * (d.currentWeek - 1)));
+          if (d.done && typeof d.done === "object") persistDone(d.done);
+          if (d.deloads && typeof d.deloads === "object") persistDeloads(d.deloads);
+          if (d.swaps && typeof d.swaps === "object") persistSwaps(d.swaps);
+          if (d.sets && typeof d.sets === "object") persistSets(d.sets);
+          if (d.targets && typeof d.targets === "object") persistTargets(d.targets);
+        }
         if (Array.isArray(d.logs)) persistLogs(d.logs);
         if (Array.isArray(d.saunas)) persistSaunas(d.saunas);
         if (Array.isArray(d.rides)) persistRides(d.rides);
-        if (d.done && typeof d.done === "object") persistDone(d.done);
-        if (d.deloads && typeof d.deloads === "object") persistDeloads(d.deloads);
-        if (d.swaps && typeof d.swaps === "object") persistSwaps(d.swaps);
-        }
         if (Array.isArray(d.bonusLog)) persistBonusLog(d.bonusLog);
+        if (d.readiness && typeof d.readiness === "object") persistReadiness(d.readiness);
         if (typeof d.hsTier === "number") persistHsTier(d.hsTier);
         if (typeof d.hsBonusLevel === "number") persistHsBonusLevel(d.hsBonusLevel);
-        if (sameCycle && d.sets && typeof d.sets === "object") persistSets(d.sets);
         alert(sameCycle ? "Data imported successfully." : "Imported logs from an earlier cycle. Week progress was left as-is (different block order).");
       } catch (err) {
         alert("Couldn't read that file — make sure it's a training-data export.");
@@ -617,73 +682,139 @@ export default function TrainingApp() {
     e.target.value = "";
   };
 
+  // props every session card needs
+  const cardProps = { sets, setSets: persistSets, targets, setTargets: persistTargets, done, setDone: persistDone,
+    hsTier, setHsTier: persistHsTier, currentWeek, todayLevel };
+
+  const NAV = [["today", "Today", "◉"], ["week", "Week", "▦"], ["log", "Log", "＋"], ["progress", "Progress", "↗"], ["coach", "Coach", "✦"]];
+  const syncDot = { ok: "#6a8d3f", syncing: "#c9962e", offline: "#c9962e", badtoken: "#d9543f", unconfigured: "#d9543f" }[sync.state];
+
   return (
     <div style={S.shell}>
       <style>{CSS}</style>
 
-      <header style={{ ...S.header, borderColor: accent }}>
-        <div>
-          <div style={S.kicker}>Concurrent Training · Cycle 2 · Strength first</div>
+      <header style={{ ...S.header, borderColor: curBlock.accent }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={S.kicker}>Cycle 2 · {fmtDate(todayKey())}</div>
           <h1 style={S.h1}>
-            Week {week} <span style={{ color: accent }}>·</span>{" "}
-            <span style={{ color: accent }}>{block.name} block</span>
-            {isDeload && <span style={S.deloadBadge}>DELOAD</span>}
-            {!isDeload && ramp && <span style={{ ...S.deloadBadge, background: accent }}>{ramp.label}</span>}
+            Week {currentWeek} <span style={{ color: curBlock.accent }}>· {curBlock.name}</span>
+            {isDeloadW(currentWeek) && <span style={S.deloadBadge}>DELOAD</span>}
+            {!isDeloadW(currentWeek) && curRamp && <span style={{ ...S.deloadBadge, background: curBlock.accent }}>{curRamp.label}</span>}
           </h1>
         </div>
-        <WeekStepper week={week} setWeek={persistWeek} accent={accent} />
+        <button onClick={() => setShowSettings(true)} style={S.gear} aria-label="Settings">
+          ⚙
+          {syncDot && <span style={{ ...S.gearDot, background: syncDot }} />}
+        </button>
       </header>
 
-      <BlockBar week={week} />
+      <BlockBar week={currentWeek} />
 
-      <div style={S.deloadRow}>
-        <span style={S.deloadLabel}>Deload week</span>
-        <button onClick={toggleDeload}
-          style={{ ...S.toggle, background: isDeload ? accent : "#ddd6c8" }}>
-          <span style={{ ...S.toggleKnob, transform: isDeload ? "translateX(20px)" : "translateX(0)" }} />
-        </button>
-        <span style={S.muted2}>{isDeload ? "On — volume cut, recover." : "Off"}</span>
-      </div>
+      {!loaded ? <div style={S.muted}>Loading…</div> : (
+        <>
+          {/* Today + Week stay mounted so a running timer survives a tab switch */}
+          <div style={{ display: view === "today" ? "block" : "none" }}>
+            <TodayView week={currentWeek} accent={curBlock.accent} isDeload={isDeloadW(currentWeek)} ramp={curRamp} rides={rides}
+              srcForDay={srcFor(currentWeek)} readiness={readiness} setReadiness={persistReadiness} cardProps={cardProps} />
+          </div>
+          <div style={{ display: view === "week" ? "block" : "none" }}>
+            <WeekView week={week} currentWeek={currentWeek} setViewWeek={setViewWeek} accent={block.accent} block={block}
+              isDeload={isDeloadW(week)} toggleDeload={() => persistDeloads({ ...deloads, [week]: !isDeloadW(week) })}
+              ramp={rampFor(week)} rides={rides} srcForDay={srcFor(week)} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps}
+              hasSwaps={Object.keys(swapsFor(week)).length > 0} hardDayWarnings={hardDayWarnings} cardProps={cardProps} />
+          </div>
+          {view === "log" && (
+            <div style={S.body}>
+              <div style={S.segRow}>
+                {[["cardio", "Cardio"], ["sauna", "Sauna"], ["bonus", "Bonus"]].map(([k, l]) => (
+                  <button key={k} onClick={() => setLogSub(k)}
+                    style={{ ...S.segBtn, ...(logSub === k ? { background: curBlock.accent, color: "#fff", borderColor: curBlock.accent } : {}) }}>{l}</button>
+                ))}
+              </div>
+              {logSub === "cardio" && <RideView rides={rides} setRides={persistRides} accent={curBlock.accent} block={curBlock} week={currentWeek} />}
+              {logSub === "sauna" && <SaunaView saunas={saunas} setSaunas={persistSaunas} accent={curBlock.accent} />}
+              {logSub === "bonus" && <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={curBlock.accent} hsLevel={hsBonusLevel} setHsLevel={persistHsBonusLevel} />}
+            </div>
+          )}
+          {view === "progress" && <ProgressView logs={logs} setLogs={persistLogs} sets={sets} accent={curBlock.accent} />}
+          {view === "coach" && <CoachView week={currentWeek} block={curBlock} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog}
+            isDeload={isDeloadW(currentWeek)} ramp={curRamp} accent={curBlock.accent} sets={sets} targets={targets} setTargets={persistTargets}
+            readiness={readiness} setDeload={() => persistDeloads({ ...deloads, [currentWeek]: true })} />}
+        </>
+      )}
 
-      <nav style={S.nav}>
-        {[["today", "Today"], ["week", "Week"], ["bonus", "Bonus"], ["progress", "Progress"], ["bike", "Cardio"], ["sauna", "Sauna"], ["coach", "Coach"]].map(([k, label]) => (
-          <button key={k} onClick={() => setView(k)}
-            style={{ ...S.navBtn, ...(view === k ? { background: accent, color: "#fff", borderColor: accent } : {}) }}>
-            {label}
+      <nav style={S.bottomNav}>
+        {NAV.map(([k, label, icon]) => (
+          <button key={k} onClick={() => { setView(k); if (k === "week" && view !== "week") setViewWeek(null); window.scrollTo(0, 0); }}
+            style={{ ...S.bottomBtn, color: view === k ? curBlock.accent : "#9a958c" }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
+            <span style={{ fontWeight: view === k ? 700 : 500 }}>{label}</span>
           </button>
         ))}
       </nav>
 
-      {!loaded ? <div style={S.muted}>Loading…</div>
-        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} sets={sets} setSets={persistSets} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
-        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} sets={sets} setSets={persistSets} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
-        : view === "progress" ? <ProgressView logs={logs} setLogs={persistLogs} sets={sets} accent={accent} />
-        : view === "bonus" ? <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={accent} hsLevel={hsBonusLevel} setHsLevel={persistHsBonusLevel} />
-        : view === "bike" ? <RideView rides={rides} setRides={persistRides} accent={accent} block={block} week={week} />
-        : view === "sauna" ? <SaunaView saunas={saunas} setSaunas={persistSaunas} accent={accent} />
-        : <CoachView week={week} block={block} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog} isDeload={isDeload} ramp={ramp} accent={accent} />}
-
-      <div style={S.dataRow}>
-        <button onClick={exportData} style={S.dataBtn}>↓ Export data</button>
-        <label style={S.dataBtn}>
-          ↑ Import data
-          <input type="file" accept="application/json,.json" onChange={importData} style={{ display: "none" }} />
-        </label>
-      </div>
-      <footer style={S.footer}>Export saves a JSON file you can keep on your phone or Drive · Sauna 2–4×/week, best on rest/cardio/short days.</footer>
+      {showSettings && (
+        <SettingsSheet onClose={() => setShowSettings(false)} accent={curBlock.accent}
+          startDate={startDate} setStartDate={persistStartDate} currentWeek={currentWeek}
+          sync={sync} syncNow={syncNow} exportData={exportData} importData={importData} />
+      )}
     </div>
   );
 }
 
-function WeekStepper({ week, setWeek, accent }) {
+function SettingsSheet({ onClose, accent, startDate, setStartDate, currentWeek, sync, syncNow, exportData, importData }) {
+  const [token, setToken] = useState(localGet("syncToken") || "");
+  const saveToken = () => { localSet("syncToken", token.trim()); if (!token.trim()) { try { localStorage.removeItem("syncToken"); } catch (e) {} } syncNow(); };
+  const syncText = {
+    off: "Off — data lives only on this device.",
+    idle: "Ready.",
+    syncing: "Syncing…",
+    ok: `Synced ${sync.at ? new Date(sync.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}.`,
+    offline: "Couldn't reach the server — changes are saved here and will sync next time.",
+    badtoken: "The server rejected this sync key. Check it matches SYNC_TOKEN in Vercel.",
+    unconfigured: "The server isn't set up yet: add an Upstash Redis store and a SYNC_TOKEN variable in Vercel.",
+  }[sync.state];
   return (
-    <div style={S.stepper}>
-      <button style={S.stepBtn} onClick={() => setWeek(Math.max(1, week - 1))}>−</button>
-      <span style={{ ...S.stepNum, color: accent }}>W{week}</span>
-      <button style={S.stepBtn} onClick={() => setWeek(Math.min(24, week + 1))}>+</button>
+    <div style={S.sheetBackdrop} onClick={onClose}>
+      <div style={S.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={S.cardTop}>
+          <h2 style={{ ...S.cardTitle, margin: 0 }}>Settings</h2>
+          <button onClick={onClose} style={S.delBtn} aria-label="Close">×</button>
+        </div>
+
+        <div style={S.sheetSection}>Program</div>
+        <label style={S.sheetRow}>
+          <span>Week 1 started</span>
+          <input type="date" value={startDate} onChange={(e) => e.target.value && setStartDate(mondayOf(e.target.value))} style={{ ...S.input, flex: "0 0 auto" }} />
+        </label>
+        <p style={S.muted2}>You're in week {currentWeek}. Weeks advance every Monday on their own.</p>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button onClick={() => setStartDate(addDays(startDate, 7))} style={{ ...S.dataBtn, flex: 1 }} disabled={currentWeek <= 1}>
+            ⏸ Missed a week — push plan back</button>
+          <button onClick={() => setStartDate(addDays(startDate, -7))} style={S.dataBtn}>⏭ skip ahead</button>
+        </div>
+
+        <div style={S.sheetSection}>Sync between devices</div>
+        <div style={S.formRow}>
+          <input type="password" placeholder="sync key" value={token} onChange={(e) => setToken(e.target.value)} style={S.input} autoComplete="off" />
+          <button onClick={saveToken} style={{ ...S.primaryBtn, background: accent }}>Save & sync</button>
+        </div>
+        <p style={{ ...S.muted2, marginTop: 6 }}>{syncText}</p>
+        <p style={S.muted2}>Set it up on the device with your history first; a fresh device then pulls everything down.</p>
+
+        <div style={S.sheetSection}>Backup</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={exportData} style={{ ...S.dataBtn, flex: 1 }}>↓ Export data</button>
+          <label style={{ ...S.dataBtn, flex: 1, textAlign: "center" }}>
+            ↑ Import data
+            <input type="file" accept="application/json,.json" onChange={importData} style={{ display: "none" }} />
+          </label>
+        </div>
+      </div>
     </div>
   );
 }
+
 
 function BlockBar({ week }) {
   return (
@@ -740,63 +871,131 @@ function FloorCard({ block, week, rides, compact }) {
   );
 }
 
-function TodayView({ week, accent, isDeload, ramp, rides, done, setDone, sets, setSets, hsTier, setHsTier, srcForDay }) {
+// Two-tap morning check-in. Changes TODAY's dose only — never your targets.
+function ReadinessCheck({ value, onChange, accent }) {
+  const [open, setOpen] = useState(!value?.sleep || !value?.stress);
+  const lvl = readinessLevel(value);
+  const R = READINESS[lvl];
+  const pick = (field, v) => {
+    const next = { ...(value || {}), [field]: value?.[field] === v ? undefined : v };
+    onChange(next);
+    if (next.sleep && next.stress) setOpen(false);
+  };
+  if (!open) {
+    return (
+      <div style={S.readyBar}>
+        <span style={{ ...S.readyDot, background: R.color }} />
+        <span style={{ flex: 1 }}><strong>{R.label}</strong><span style={S.muted2}> · sleep {value?.sleep || "–"}, stress {value?.stress || "–"}</span></span>
+        <button onClick={() => setOpen(true)} style={S.timerReset}>change</button>
+      </div>
+    );
+  }
+  const Row = ({ field, label, opts }) => (
+    <div style={S.readyRow}>
+      <span style={S.readyLbl}>{label}</span>
+      {opts.map((o) => (
+        <button key={o} onClick={() => pick(field, o)}
+          style={{ ...S.readyOpt, ...(value?.[field] === o ? { background: accent, color: "#fff", borderColor: accent } : {}) }}>{o}</button>
+      ))}
+    </div>
+  );
+  return (
+    <div style={{ ...S.card, padding: 14 }}>
+      <div style={{ ...S.cardTop, marginBottom: 8 }}>
+        <strong style={{ fontSize: 14 }}>Quick check-in</strong>
+        <span style={S.muted2}>optional</span>
+      </div>
+      <Row field="sleep" label="Sleep" opts={["good", "ok", "poor"]} />
+      <Row field="stress" label="Stress" opts={["low", "med", "high"]} />
+      {(value?.sleep || value?.stress) && (
+        <div style={{ fontSize: 12.5, marginTop: 8, color: R.color, lineHeight: 1.45 }}><strong>{R.label}.</strong> {R.note}</div>
+      )}
+      {!(value?.sleep || value?.stress) && <div style={{ ...S.muted2, marginTop: 6 }}>Only scales today's number of sets. Your progression targets never drop because of a bad day.</div>}
+    </div>
+  );
+}
+
+function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, setReadiness, cardProps }) {
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
   const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
   const swapped = (k) => srcForDay(k) !== k;
+  const tk = todayKey();
   return (
     <div style={S.body}>
-      <SessionCard label={swapped(td) ? "TODAY · swapped" : "TODAY"} dayKey={td} week={week} session={get(td)} accent={accent} big done={done} setDone={setDone} sets={sets} setSets={setSets} hsTier={hsTier} setHsTier={setHsTier} />
-      <SessionCard label={swapped(tm) ? "TOMORROW · swapped" : "TOMORROW"} dayKey={tm} week={week} session={get(tm)} accent={accent} done={done} setDone={setDone} sets={sets} setSets={setSets} hsTier={hsTier} setHsTier={setHsTier} />
+      <ReadinessCheck value={readiness[tk]} onChange={(v) => setReadiness({ ...readiness, [tk]: v })} accent={accent} />
+      <SessionCard label={swapped(td) ? "TODAY · swapped" : "TODAY"} dayKey={td} week={week} session={get(td)} accent={accent} big {...cardProps} />
+      <FloorCard block={block} week={week} rides={rides} compact />
+      <SessionCard label={swapped(tm) ? "TOMORROW · swapped" : "TOMORROW"} dayKey={tm} week={week} session={get(tm)} accent={accent} compact {...cardProps} />
       <div style={{ ...S.tagBox, borderColor: accent }}>
         <strong style={{ color: accent }}>{block.name} block.</strong> {block.tag}
+        {ramp && !isDeload && <> <strong style={{ color: accent }}>Why ease in?</strong> Strength returns fast after a break, but tendons re-adapt more slowly than muscle — and life stress draws on the same recovery budget. Two easy weeks buy the next six.</>}
       </div>
-      <FloorCard block={block} week={week} rides={rides} />
-      {ramp && !isDeload && (
-        <div style={{ ...S.tagBox, borderColor: accent }}>
-          <strong style={{ color: accent }}>Why ease in?</strong> Strength returns fast after a break (the nervous-system skill is largely retained), but tendons re-adapt more slowly than muscle — and life stress draws on the same recovery budget as training. Two easy weeks cost almost nothing and buy the next six.
-        </div>
-      )}
     </div>
   );
 }
 
-function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, sets, setSets, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
+// is a calendar slot done? explicit tick/untick wins; otherwise every loggable move has its planned sets
+function slotStatus(id, session, done, sets, level) {
+  const loggable = (session.exercises || []).filter(exKind);
+  const f = setFactor(session, level);
+  const logged = loggable.filter((ex) => vals(sets?.[`${id}|${ex.name}`]).length >= plannedSets(ex, f)).length;
+  const auto = loggable.length > 0 && logged === loggable.length;
+  const isDone = done[id] !== undefined ? !!done[id] : auto;
+  return { isDone, auto, logged, total: loggable.length };
+}
+
+function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, toggleDeload, ramp, rides, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, cardProps }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
   const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
-  const completed = order.filter((k) => done[`W${week}-${k}`]).length;
-  const [swapMode, setSwapMode] = useState(null); // calendar dayKey awaiting a target, or null
-
+  const td = new Date().getDay();
+  const levelFor = (k) => (week === currentWeek && k === td ? cardProps.todayLevel : "full");
+  const completed = order.filter((k) => slotStatus(`W${week}-${k}`, get(k), cardProps.done, cardProps.sets, levelFor(k)).isDone).length;
+  const [swapMode, setSwapMode] = useState(null);
   const onSwapClick = (k) => {
     if (swapMode === null) { setSwapMode(k); return; }
-    if (swapMode === k) { setSwapMode(null); return; }   // tapped same card → cancel
-    swapDays(swapMode, k);
-    setSwapMode(null);
+    if (swapMode === k) { setSwapMode(null); return; }
+    swapDays(swapMode, k); setSwapMode(null);
   };
+  const go = (w) => { setSwapMode(null); setViewWeek(w === currentWeek ? null : Math.min(24, Math.max(1, w))); };
 
   return (
     <div style={S.body}>
-      <div style={{ ...S.tagBox, borderColor: accent, marginBottom: 2 }}>
-        <strong style={{ color: accent }}>{completed}/7 logged this week.</strong> Tap a card to mark done · ⇄ to swap days.
+      <div style={S.weekNav}>
+        <button style={S.stepBtn} onClick={() => go(week - 1)} disabled={week <= 1}>‹</button>
+        <div style={{ textAlign: "center", flex: 1 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: accent }}>Week {week} · {block.name}</div>
+          <div style={S.muted2}>
+            {week === currentWeek ? "this week" : <button onClick={() => go(currentWeek)} style={{ ...S.timerReset, color: accent }}>↩ back to this week (W{currentWeek})</button>}
+            {" · "}{completed}/7 done
+          </div>
+        </div>
+        <button style={S.stepBtn} onClick={() => go(week + 1)} disabled={week >= 24}>›</button>
       </div>
-      <FloorCard block={block} week={week} rides={rides} compact />
+
+      <div style={S.deloadRow}>
+        <span style={S.deloadLabel}>Deload week</span>
+        <button onClick={toggleDeload} style={{ ...S.toggle, background: isDeload ? accent : "#ddd6c8" }} aria-label="Toggle deload">
+          <span style={{ ...S.toggleKnob, transform: isDeload ? "translateX(20px)" : "translateX(0)" }} />
+        </button>
+        <span style={S.muted2}>{isDeload ? "On — volume cut, recover." : "Off"}</span>
+      </div>
+
+      {week === currentWeek && <FloorCard block={block} week={week} rides={rides} compact />}
 
       {hardDayWarnings.length > 0 && (
         <div style={S.warnBox}>
           ⚠️ Two main sessions back-to-back: {hardDayWarnings.map(([a, b]) => `${DAY_NAMES[a]}→${DAY_NAMES[b]}`).join(", ")}.
-          Fine occasionally, but you'll have no easy buffer between them — consider keeping one hard and easing the other, or sliding a rest/skill day between.
+          Consider easing one, or sliding a rest/skill day between.
         </div>
       )}
-
       {hasSwaps && (
         <div style={S.swapBanner}>
-          <span>This week has swapped days (overlay on the plan).</span>
+          <span>This week has swapped days.</span>
           <button onClick={() => { resetWeekSwaps(); setSwapMode(null); }} style={S.swapResetBtn}>Reset to plan</button>
         </div>
       )}
-
       {swapMode !== null && (
         <div style={S.swapHint}>
           Swapping <strong>{DAY_NAMES[swapMode]}</strong> — tap another day to swap with it, or tap {DAY_NAMES[swapMode]} again to cancel.
@@ -807,18 +1006,16 @@ function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, sets, se
         const swapped = srcForDay(k) !== k;
         const isPicking = swapMode === k;
         const isTarget = swapMode !== null && swapMode !== k;
+        const isToday = week === currentWeek && k === td;
         return (
-          <div key={k} style={{
-            outline: isPicking ? `2px solid ${accent}` : isTarget ? `2px dashed ${accent}88` : "none",
-            borderRadius: 14, transition: "outline 0.15s" }}>
-            <SessionCard label={swapped ? `${DAY_NAMES[k].toUpperCase()} · swapped` : DAY_NAMES[k].toUpperCase()}
-              dayKey={k} week={week} session={get(k)} accent={accent}
-              done={done} setDone={setDone} sets={sets} setSets={setSets} hsTier={hsTier} setHsTier={setHsTier} compact
+          <div key={k} style={{ outline: isPicking ? `2px solid ${accent}` : isTarget ? `2px dashed ${accent}88` : "none", borderRadius: 14, transition: "outline 0.15s" }}>
+            <SessionCard label={`${DAY_NAMES[k].toUpperCase()}${isToday ? " · TODAY" : ""}${swapped ? " · swapped" : ""}`}
+              dayKey={k} week={week} session={get(k)} accent={accent} compact {...cardProps}
               swapControl={
                 <button onClick={() => onSwapClick(k)}
-                  style={{ ...S.swapBtn, color: isPicking ? "#fff" : isTarget ? "#fff" : accent,
+                  style={{ ...S.swapBtn, color: isPicking || isTarget ? "#fff" : accent,
                     background: isPicking ? "#c9962e" : isTarget ? accent : "#fff", borderColor: accent + "66" }}>
-                  {isPicking ? "✕ cancel" : isTarget ? `⇄ swap with ${DAY_NAMES[swapMode]}` : "⇄ swap day"}
+                  {isPicking ? "✕ cancel" : isTarget ? `⇄ swap with ${DAY_NAMES[swapMode]}` : "⇄"}
                 </button>
               } />
           </div>
@@ -828,67 +1025,44 @@ function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, sets, se
   );
 }
 
-function DrillTimer({ seconds, perSide, accent }) {
+// Countdown for a hold. onDone(sec) fires once when it runs out; pausing mid-hold
+// offers "log Xs" so a hold you bailed on still counts as data (that's what lowers
+// a target that's too hard — and a clean full-length set is what raises it).
+function DrillTimer({ seconds, perSide, accent, onDone }) {
   const [remaining, setRemaining] = useState(seconds);
   const [running, setRunning] = useState(false);
-  const [side, setSide] = useState(1); // for perSide drills: 1 then 2
-  const intervalRef = useRef(null);
+  const [side, setSide] = useState(1);
+  const doneRef = useRef(onDone); doneRef.current = onDone;
   useWakeLock(running);
 
+  useEffect(() => { if (!running) { setRemaining(seconds); setSide(1); } }, [seconds]);   // target changed
   useEffect(() => {
-    if (running) {
-      intervalRef.current = setInterval(() => {
-        setRemaining((r) => {
-          if (r <= 1) {
-            clearInterval(intervalRef.current);
-            finish();
-            return 0;
-          }
-          return r - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(intervalRef.current);
-    // eslint-disable-next-line
+    if (!running) return;
+    const id = setInterval(() => setRemaining((r) => (r > 0 ? r - 1 : 0)), 1000);
+    return () => clearInterval(id);
   }, [running]);
-
-  const beep = () => {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = 660; o.type = "sine";
-      g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
-      o.start(); o.stop(ctx.currentTime + 0.62);
-    } catch (e) {}
-    try { if (navigator.vibrate) navigator.vibrate(250); } catch (e) {}
-  };
-
-  const finish = () => {
+  useEffect(() => {
+    if (!running || remaining > 0) return;
     setRunning(false);
-    beep();
-    if (perSide && side === 1) {
-      setSide(2);
-      setRemaining(seconds);
-    }
-  };
+    beep(660, 0.6, 250);
+    if (perSide && side === 1) { setSide(2); setRemaining(seconds); }
+    else doneRef.current?.(seconds);
+    // eslint-disable-next-line
+  }, [remaining, running]);
 
   const toggle = () => {
     if (remaining === 0) { setRemaining(seconds); setSide(1); setRunning(true); }
     else setRunning(!running);
   };
   const reset = () => { setRunning(false); setRemaining(seconds); setSide(1); };
+  const elapsed = seconds - remaining;
+  const partial = !running && !perSide && onDone && elapsed > 0 && remaining > 0;
 
-  const mm = String(Math.floor(remaining / 60)).padStart(1, "0");
+  const mm = String(Math.floor(remaining / 60));
   const ss = String(remaining % 60).padStart(2, "0");
-  const pct = (remaining / seconds) * 100;
-
   return (
     <div style={S.timerWrap}>
-      <button onClick={toggle} style={{ ...S.timerBtn, background: running ? "#c9962e" : accent }}>
+      <button onClick={toggle} style={{ ...S.timerBtn, background: running ? "#c9962e" : accent }} aria-label="Start or pause">
         {remaining === 0 ? "↻" : running ? "❚❚" : "▶"}
       </button>
       <div style={S.timerBody}>
@@ -897,15 +1071,29 @@ function DrillTimer({ seconds, perSide, accent }) {
           {perSide && <span style={S.timerSide}>side {side}/2</span>}
         </div>
         <div style={S.timerTrack}>
-          <div style={{ width: `${pct}%`, height: "100%", background: accent, borderRadius: 3, transition: "width 1s linear" }} />
+          <div style={{ width: `${(remaining / seconds) * 100}%`, height: "100%", background: accent, borderRadius: 3, transition: "width 1s linear" }} />
         </div>
       </div>
+      {partial && <button onClick={() => { onDone(elapsed); reset(); }} style={{ ...S.swapBtn, color: accent, borderColor: accent + "66", background: "#fff" }}>log {elapsed}s</button>}
       {(running || remaining !== seconds) && <button onClick={reset} style={S.timerReset}>reset</button>}
     </div>
   );
 }
+function beep(freq, dur, vib) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = freq; o.type = "sine";
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.start(); o.stop(ctx.currentTime + dur + 0.02);
+  } catch (e) {}
+  try { if (navigator.vibrate) navigator.vibrate(vib); } catch (e) {}
+}
 
-// Looping work/rest interval timer with distinct audio cues per phase.
+
 function IntervalTimer({ config, accent }) {
   const { work, rest, rounds, workLabel = "WORK", restLabel = "rest" } = config;
   const [phase, setPhase] = useState("work");   // "work" | "rest" | "done"
@@ -995,184 +1183,203 @@ function IntervalTimer({ config, accent }) {
   );
 }
 
-function SessionCard({ label, dayKey, week, session, accent, big, compact, done, setDone, sets, setSets, hsTier, setHsTier, swapControl }) {
+function SessionCard({ label, dayKey, week, session, accent, big, compact, done, setDone, sets, setSets, targets, setTargets, hsTier, setHsTier, currentWeek, todayLevel, swapControl }) {
   const sa = SAUNA_MEANING[session.sauna];
   const id = `W${week}-${dayKey}`;
-  const isDone = !!done[id];
-  const toggle = () => setDone({ ...done, [id]: !isDone });
+  const isToday = week === currentWeek && dayKey === new Date().getDay();
+  const level = isToday ? todayLevel : "full";
+  const st = slotStatus(id, session, done, sets, level);
+  const toggle = () => {
+    const next = { ...done };
+    if (st.isDone) { if (st.auto) next[id] = false; else delete next[id]; }
+    else { if (st.auto) delete next[id]; else next[id] = true; }
+    setDone(next);
+  };
   const [expanded, setExpanded] = useState(false);
   const hasDetail = session.exercises || session.routine;
   const showDetail = !compact || expanded;
   return (
     <div style={{ ...S.card, ...(big ? S.cardBig : {}), ...(compact ? { padding: 14 } : {}),
-      borderLeft: `5px solid ${accent}`, opacity: isDone ? 0.62 : 1 }}>
+      borderLeft: `5px solid ${accent}`, opacity: st.isDone && !big ? 0.62 : 1 }}>
       <div style={S.cardTop}>
         <span style={{ ...S.cardLabel, color: accent }}>{label}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={S.typePill}>{TYPE_LABEL[session.type]}</span>
-          <button onClick={toggle} title="Mark done"
-            style={{ ...S.check, background: isDone ? accent : "#fff", borderColor: isDone ? accent : "#d8d2c5",
-              color: isDone ? "#fff" : "transparent" }}>✓</button>
+          {st.total > 0 && <span style={S.typePill}>{st.logged}/{st.total} logged</span>}
+          {st.total === 0 && <span style={S.typePill}>{TYPE_LABEL[session.type]}</span>}
+          <button onClick={toggle} title={st.auto ? "Done automatically — every move logged" : "Mark done"}
+            style={{ ...S.check, background: st.isDone ? accent : "#fff", borderColor: st.isDone ? accent : "#d8d2c5",
+              color: st.isDone ? "#fff" : "transparent" }}>✓</button>
         </div>
       </div>
-      <h2 style={{ ...S.cardTitle, fontSize: big ? 26 : compact ? 17 : 20,
-        textDecoration: isDone ? "line-through" : "none" }}>{session.title}</h2>
-      <p style={{ ...S.cardBody, fontSize: compact ? 13 : 14.5, marginBottom: compact ? 8 : 12 }}>{session.body}</p>
+      <h2 style={{ ...S.cardTitle, fontSize: big ? 24 : compact ? 17 : 20,
+        textDecoration: st.isDone && !big ? "line-through" : "none" }}>{session.title}</h2>
+      {!(big && session.exercises) && <p style={{ ...S.cardBody, fontSize: compact ? 13 : 14.5, marginBottom: compact ? 8 : 12 }}>{session.body}</p>}
+      {big && session.exercises && (session.ramp || session.deload) && (
+        <p style={{ ...S.cardBody, fontSize: 13 }}>{session.deload ? "Deload week: fewer sets, stop well short of failure — hold lengths stay the same." : `${session.ramp.label}: ${session.ramp.text}`}</p>
+      )}
       {compact && hasDetail && (
         <button onClick={() => setExpanded(!expanded)}
           style={{ ...S.routineToggle, color: accent, borderColor: accent + "44", marginBottom: expanded ? 4 : 0 }}>
-          {expanded ? "▾ Hide details" : "▸ Show full session"}
+          {expanded ? "▾ Hide session" : "▸ Open session"}
         </button>
       )}
-      {!compact && (
-        <div style={{ ...S.saunaChip, background: sa.color + "1a", color: sa.color, borderColor: sa.color + "55" }}>
-          🔥 {sa.label} — <span style={{ opacity: 0.85 }}>{sa.note}</span>
-        </div>
-      )}
       {showDetail && session.exercises && (
-        <ExerciseList exercises={session.exercises} accent={accent} deload={session.deload} ramp={session.ramp} defaultOpen={big || (compact && expanded)}
-          slotId={id} week={week} sets={sets} setSets={setSets} />
+        <ExerciseList exercises={session.exercises} accent={accent} session={session} level={level}
+          slotId={id} week={week} sets={sets} setSets={setSets} targets={targets} setTargets={setTargets} />
       )}
       {showDetail && session.routine && (
         <div style={{ marginTop: 12 }}>
           {session.routine.tiered
-            ? <TieredRoutine routine={session.routine} accent={accent} hsTier={hsTier} setHsTier={setHsTier} defaultOpen={compact && expanded} />
-            : <ArrayRoutine routine={session.routine} accent={accent} defaultOpen={compact && expanded} />}
+            ? <TieredRoutine routine={session.routine} accent={accent} hsTier={hsTier} setHsTier={setHsTier} defaultOpen={big || (compact && expanded)} />
+            : <ArrayRoutine routine={session.routine} accent={accent} defaultOpen={big || (compact && expanded)} />}
         </div>
       )}
-      {swapControl && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-          {swapControl}
+      {!compact && (
+        <div style={{ ...S.saunaChip, marginTop: 12, background: sa.color + "1a", color: sa.color, borderColor: sa.color + "55" }}>
+          🔥 {sa.label} — <span style={{ opacity: 0.85 }}>{sa.note}</span>
         </div>
       )}
+      {swapControl && <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{swapControl}</div>}
     </div>
   );
 }
 
-// Renders a main session's structured exercises with holds (DrillTimer) and intervals (IntervalTimer).
-function ExerciseList({ exercises, accent, deload, ramp, defaultOpen, slotId, week, sets, setSets }) {
-  const factor = deload ? 0.55 : ramp?.setsFactor ?? 1;
-  const [show, setShow] = useState(!!defaultOpen);
-  const timed = exercises.filter((e) => e.seconds || e.interval).length;
+// A session's exercises, each with its logger (and timer for holds / intervals).
+function ExerciseList({ exercises, accent, session, level, slotId, week, sets, setSets, targets, setTargets }) {
+  const factor = setFactor(session, level);
   return (
-    <div style={{ marginTop: 12 }}>
-      <button onClick={() => setShow(!show)}
-        style={{ ...S.routineToggle, color: accent, borderColor: accent + "44" }}>
-        {show ? "▾ Hide exercises" : "▸ Show exercises"} · {exercises.length} moves{timed ? ` · ${timed} timed` : ""}
-      </button>
-      {show && (
-        <div style={{ marginTop: 10 }}>
-          {deload && (
-            <div style={S.tierBlurb}>
-              Deload week: cut sets ~40–50% and stop well short of failure. Holds can stay full length — it's the volume you reduce, not the quality of each rep.
-            </div>
-          )}
-          {ramp && !deload && (
-            <div style={S.tierBlurb}>
-              {ramp.label}: {ramp.text} Listed doses are the full-week targets you're building back toward.
-            </div>
-          )}
-          {exercises.map((it, ii) => (
-            <div key={ii} style={S.routineItem}>
-              <div style={S.routineItemTop}>
-                <span style={S.routineName}>{it.name}</span>
-                <span style={S.routineDose}>{it.dose}</span>
-              </div>
-              <div style={S.routineCue}>{it.cue}</div>
-              {it.seconds && <DrillTimer seconds={it.seconds} perSide={it.perSide} accent={accent} />}
-              {it.interval && <IntervalTimer config={deload ? { ...it.interval, rounds: Math.max(3, Math.round(it.interval.rounds * 0.6)) } : it.interval} accent={accent} />}
-              {isRepBased(it) && setSets && <SetLogger ex={it} slotId={slotId} week={week} store={sets || {}} setStore={setSets} factor={factor} accent={accent} />}
-            </div>
-          ))}
+    <div style={{ marginTop: 4 }}>
+      {level !== "full" && (
+        <div style={{ ...S.tierBlurb, color: READINESS[level].color, fontStyle: "normal" }}>
+          {READINESS[level].label}: set counts below are scaled to today.
         </div>
       )}
+      {exercises.map((it, ii) => {
+        const kind = exKind(it);
+        return (
+          <div key={ii} style={{ ...S.routineItem, padding: "12px 0" }}>
+            <div style={S.routineItemTop}>
+              <span style={S.routineName}>{it.name}</span>
+              <span style={S.routineDose}>{it.dose}</span>
+            </div>
+            <div style={S.routineCue}>{it.cue}</div>
+            {kind && <SetLogger ex={it} kind={kind} slotId={slotId} week={week} store={sets || {}} setStore={setSets}
+              targets={targets || {}} setTargets={setTargets} factor={factor} level={level} accent={accent} />}
+            {!kind && it.seconds && <DrillTimer seconds={it.seconds} perSide={it.perSide} accent={accent} />}
+            {it.interval && <IntervalTimer config={session.deload ? { ...it.interval, rounds: Math.max(3, Math.round(it.interval.rounds * 0.6)) } : it.interval} accent={accent} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 // ============================================================================
-// INLINE SET LOGGER — reps (and optional load) logged right under each exercise.
-// Keyed by the calendar SLOT (W3-1 = week 3, Monday) so a swapped/rescheduled
-// session keeps its own log; "last time" looks across slots by exercise name.
-// Tap an empty set → fills with last time's reps (or the target floor) — most sets
-// are one tap. Tap a filled set → nudge with − / + or clear it.
+// SET LOGGER — reps or hold-seconds logged right under each exercise.
+// Keyed by the calendar SLOT (W3-1 = week 3, Monday) so a swapped session keeps
+// its own log. Tap an empty set → fills with the suggestion (last time's reps, or
+// the hold target) — most sets are one tap. Tap a filled set → nudge or clear.
+// The hold timer logs a set by itself when it runs out.
 // ============================================================================
-function parseDose(dose) {
-  const d = dose || "";
-  const m = /^(\d+)\s*×\s*(\d+)?(?:\s*[–-]\s*(\d+))?/.exec(d);
-  if (m) return { sets: +m[1], lo: m[2] ? +m[2] : null, hi: m[3] ? +m[3] : m[2] ? +m[2] : null };
-  const r = /^(\d+)(?:\s*[–-]\s*(\d+))?\s*\/\s*(leg|side)/.exec(d);
-  if (r) return { sets: 1, lo: +r[1], hi: r[2] ? +r[2] : +r[1] };
-  return { sets: 3, lo: null, hi: null };
-}
-const isRepBased = (ex) => !ex.seconds && !ex.interval && !/warm-up|cool-down|intervals?$/i.test(ex.name);
-const isLoadable = (ex) => /weight|squat|deadlift|dip|lunge|row/i.test(ex.name);
+const FEELS = [["easy", "easy", "3+ reps / plenty left"], ["right", "right", "1–2 left — the target zone"], ["hard", "hard", "nothing left / form broke"]];
 
-function lastEntryFor(store, exName, excludeKey) {
-  let best = null;
-  for (const [k, v] of Object.entries(store)) {
-    if (k === excludeKey || v.ex !== exName || !v.reps?.some((x) => x != null)) continue;
-    if (!best || v.date > best.date) best = v;
-  }
-  return best;
-}
-
-function SetLogger({ ex, slotId, week, store, setStore, factor, accent }) {
+function SetLogger({ ex, kind, slotId, week, store, setStore, targets, setTargets, factor, level, accent }) {
   const key = `${slotId}|${ex.name}`;
   const entry = store[key];
   const reps = entry?.reps || [];
   const kg = entry?.kg;
-  const target = parseDose(ex.dose);
-  const planned = Math.max(1, Math.round(target.sets * factor));
+  const hold = kind === "hold";
+  const dose = parseDose(ex.dose);
+  const planned = plannedSets(ex, factor);
   const slots = Math.max(planned, reps.length);
   const prev = lastEntryFor(store, ex.name, key);
+  const prog = progressionFor(ex, store, targets, key);            // state BEFORE this session
+  const ov = targets[ex.name];
+  // a target you set by hand after logging this slot replaces the one it was logged against
+  const target = hold ? (entry?.target && !(ov && ov.date >= entry.date) ? entry.target : prog.target) : null;
+  const after = entry ? progressionFor(ex, store, targets) : null;  // state after it — what next time looks like
   const [active, setActive] = useState(null);
+  const [editTarget, setEditTarget] = useState(false);
 
-  const write = (nextReps, nextKg = kg) => {
+  const write = (nextReps, patch = {}) => {
     const r = [...nextReps]; while (r.length && r[r.length - 1] == null) r.pop();
+    const merged = { kg, feel: entry?.feel, ...patch };
     const next = { ...store };
-    if (!r.length && (nextKg == null || nextKg === "")) delete next[key];
-    else next[key] = { date: entry?.date || todayKey(), week, ex: ex.name, reps: r.map((x) => (x == null ? null : x)),
-      ...(nextKg != null && nextKg !== "" ? { kg: Number(nextKg) } : {}) };
+    if (!r.length && (merged.kg == null || merged.kg === "")) delete next[key];
+    else next[key] = {
+      date: entry?.date || todayKey(), week, ex: ex.name, kind, reps: r,
+      target: hold ? target : ex.dose, planned, readiness: entry?.readiness || level,
+      ...(merged.kg != null && merged.kg !== "" ? { kg: Number(merged.kg) } : {}),
+      ...(merged.feel ? { feel: merged.feel } : {}),
+    };
     setStore(next);
   };
   const suggest = (i) => {
-    const pr = prev?.reps?.filter((x) => x != null) || [];
-    return pr[i] ?? pr[pr.length - 1] ?? reps.filter((x) => x != null).slice(-1)[0] ?? target.lo ?? 5;
+    if (hold) return target;
+    const pr = prev ? vals(prev) : [];
+    return pr[i] ?? pr[pr.length - 1] ?? reps.filter((x) => x != null).slice(-1)[0] ?? dose.lo ?? 5;
   };
-  const tap = (i) => {
-    if (reps[i] == null) { const r = [...reps]; r[i] = suggest(i); write(r); setActive(null); }
-    else setActive(active === i ? null : i);
-  };
-  const nudge = (i, delta) => { const r = [...reps]; r[i] = Math.max(0, (r[i] || 0) + delta); write(r); };
-  const setVal = (i, v) => { const r = [...reps]; r[i] = v === "" ? null : Math.max(0, parseInt(v, 10) || 0); write(r); };
+  const firstEmpty = () => { for (let i = 0; i < slots; i++) if (reps[i] == null) return i; return slots; };
+  const fill = (i, v) => { const r = [...reps]; r[i] = v; write(r); };
+  const tap = (i) => { if (reps[i] == null) { fill(i, suggest(i)); setActive(null); } else setActive(active === i ? null : i); };
+  const step = hold ? 5 : 1;
+  const nudge = (i, d) => fill(i, Math.max(0, (reps[i] || 0) + d));
+  const setVal = (i, v) => fill(i, v === "" ? null : Math.max(0, parseInt(v, 10) || 0));
   const clear = (i) => { const r = [...reps]; r[i] = null; write(r); setActive(null); };
 
-  const logged = reps.filter((x) => x != null);
+  const logged = vals(entry);
   const total = logged.reduce((a, b) => a + b, 0);
-  const allTop = target.hi != null && logged.length >= planned && logged.every((x) => x >= target.hi);
-  const chipColor = (v) => v == null ? null : target.lo == null ? accent : v >= (target.hi ?? target.lo) ? "#6a8d3f" : v >= target.lo ? accent : "#c9962e";
-  const fmt = (e) => e.reps.filter((x) => x != null).join("·") + (e.kg ? ` @ ${e.kg > 0 ? "+" : ""}${e.kg}kg` : "");
+  const color = (v) => {
+    if (v == null) return null;
+    if (hold) return v >= target ? "#6a8d3f" : v >= target * 0.8 ? accent : "#c9962e";
+    return dose.lo == null ? accent : v >= (dose.hi ?? dose.lo) ? "#6a8d3f" : v >= dose.lo ? accent : "#c9962e";
+  };
+  const unit = hold ? "s" : "";
+  const fmt = (e) => vals(e).map((x) => `${x}${unit}`).join("·") + (e.kg ? ` @ ${e.kg}kg` : "");
+  const dirColor = { up: "#6a8d3f", down: "#c9962e", hold: "#6b665d", set: accent };
+  const nextLine = !after ? null : !hold ? after.last
+    : after.target !== target ? { ...after.last, text: `Next time: ${after.last.text}` }
+    : after.pending ? { dir: "hold", text: after.pending } : null;
 
   return (
     <div style={S.setWrap}>
-      <div style={S.setRow}>
+      {hold && (
+        <div style={S.targetRow}>
+          <span>Target <button onClick={() => setEditTarget(!editTarget)} style={{ ...S.targetPill, borderColor: accent + "66", color: accent }}>{target}s ✎</button>
+            {target !== ex.seconds && <span style={S.muted2}> (plan: {ex.seconds}s)</span>}</span>
+          {!entry && prog.pending && <span style={S.muted2}>{prog.pending}</span>}
+        </div>
+      )}
+      {hold && editTarget && (
+        <div style={S.setEditor}>
+          <span style={S.muted2}>Set the target</span>
+          <button onClick={() => setTargets({ ...targets, [ex.name]: { sec: Math.max(5, target - 5), date: todayKey() } })} style={S.setNudge}>−</button>
+          <strong style={{ fontFamily: FONT_DISPLAY, minWidth: 36, textAlign: "center" }}>{target}s</strong>
+          <button onClick={() => setTargets({ ...targets, [ex.name]: { sec: target + 5, date: todayKey() } })} style={S.setNudge}>+</button>
+          {targets[ex.name] && <button onClick={() => { const t = { ...targets }; delete t[ex.name]; setTargets(t); }} style={S.timerReset}>auto</button>}
+          <button onClick={() => setEditTarget(false)} style={{ ...S.setNudge, background: accent, color: "#fff", borderColor: accent }}>✓</button>
+        </div>
+      )}
+      {hold && <DrillTimer seconds={target} accent={accent} onDone={(sec) => fill(firstEmpty(), sec)} />}
+
+      <div style={{ ...S.setRow, marginTop: hold ? 8 : 0 }}>
         {Array.from({ length: slots }).map((_, i) => {
-          const v = reps[i]; const c = chipColor(v);
+          const v = reps[i]; const c = color(v);
           return (
             <button key={i} onClick={() => tap(i)} aria-label={`Set ${i + 1}`}
               style={{ ...S.setChip,
                 ...(v != null ? { background: c, borderColor: c, color: "#fff" } : { color: "#b5afa2" }),
                 ...(active === i ? { outline: `2px solid ${accent}`, outlineOffset: 2 } : {}) }}>
-              {v != null ? v : <span style={{ fontSize: 11 }}>{suggest(i)}</span>}
+              {v != null ? `${v}${unit}` : <span style={{ fontSize: 11 }}>{suggest(i)}{unit}</span>}
             </button>
           );
         })}
-        <button onClick={() => { const r = [...reps]; r[slots] = suggest(slots); write(r); }} style={S.setAdd} title="Add a set">+</button>
-        {isLoadable(ex) && (
+        <button onClick={() => fill(slots, suggest(slots))} style={S.setAdd} title="Add a set">+</button>
+        {!hold && isLoadable(ex) && (
           <label style={S.kgWrap}>
-            <input type="number" inputMode="decimal" placeholder={prev?.kg != null ? String(prev.kg) : "kg"} value={kg ?? ""}
-              onChange={(e) => write(reps, e.target.value)} style={S.kgInput} />
+            <input type="number" inputMode="decimal"
+              placeholder={prog.suggestKg != null ? String(prog.suggestKg) : prev?.kg != null ? String(prev.kg) : "kg"}
+              value={kg ?? ""} onChange={(e) => write(reps, { kg: e.target.value })} style={S.kgInput} />
             <span style={S.kgUnit}>kg</span>
           </label>
         )}
@@ -1181,24 +1388,41 @@ function SetLogger({ ex, slotId, week, store, setStore, factor, accent }) {
       {active != null && reps[active] != null && (
         <div style={S.setEditor}>
           <span style={S.muted2}>Set {active + 1}</span>
-          <button onClick={() => nudge(active, -1)} style={S.setNudge}>−</button>
+          <button onClick={() => nudge(active, -step)} style={S.setNudge}>−</button>
           <input type="number" inputMode="numeric" value={reps[active] ?? ""} onChange={(e) => setVal(active, e.target.value)} style={S.setEditInput} />
-          <button onClick={() => nudge(active, 1)} style={S.setNudge}>+</button>
+          <button onClick={() => nudge(active, step)} style={S.setNudge}>+</button>
           <button onClick={() => clear(active)} style={S.timerReset}>clear</button>
           <button onClick={() => setActive(null)} style={{ ...S.setNudge, background: accent, color: "#fff", borderColor: accent }}>✓</button>
         </div>
       )}
 
+      {logged.length > 0 && (
+        <div style={S.feelRow}>
+          <span style={S.muted2}>Felt</span>
+          {FEELS.map(([k, l, tip]) => (
+            <button key={k} title={tip} onClick={() => write(reps, { feel: entry?.feel === k ? undefined : k })}
+              style={{ ...S.feelBtn, ...(entry?.feel === k ? { background: accent, color: "#fff", borderColor: accent } : {}) }}>{l}</button>
+          ))}
+        </div>
+      )}
+
       <div style={S.setMeta}>
         {logged.length > 0
-          ? <span><strong style={{ color: "#2a261f" }}>{logged.length}/{planned} sets · {total} reps</strong></span>
-          : <span>Tap a set to log it{factor < 1 ? ` · ${planned} sets this week` : ""}</span>}
+          ? <strong style={{ color: "#2a261f" }}>{logged.length}/{planned} sets · {total}{hold ? "s" : " reps"}</strong>
+          : <span>{hold ? "Run the timer — it logs the set" : "Tap a set to log it"}{factor < 1 ? ` · ${planned} sets today` : ""}</span>}
         {prev && <span> · last {prev.date.slice(5)}: {fmt(prev)}</span>}
       </div>
-      {allTop && <div style={{ ...S.setMeta, color: "#6a8d3f", fontWeight: 600 }}>↑ All sets at the top of the range — add load or a harder progression next time.</div>}
+      {!entry && !hold && prog.last && <div style={{ ...S.setMeta, color: dirColor[prog.last.dir] }}>{prog.last.dir === "up" ? "↑ " : prog.last.dir === "down" ? "↓ " : ""}{prog.last.text}</div>}
+      {nextLine && logged.length >= planned && (
+        <div style={{ ...S.setMeta, color: dirColor[nextLine.dir], fontWeight: 600 }}>
+          {`${nextLine.dir === "up" ? "↑ " : nextLine.dir === "down" ? "↓ " : ""}${nextLine.text}`}
+        </div>
+      )}
+      {hold && after?.atCap && <div style={{ ...S.setMeta, color: accent }}>At 2× the programmed hold — time to progress the variation (e.g. tuck → advanced tuck) and set the target back down.</div>}
     </div>
   );
 }
+
 
 // Renders the original array-of-groups routine (mobility).
 function ArrayRoutine({ routine, accent, defaultOpen }) {
@@ -1450,7 +1674,9 @@ function ProgressView({ logs, setLogs, sets, accent }) {
   const [ex, setEx] = useState(exNames[0] || "");
   const exSeries = setEntries.filter((e) => e.ex === ex).sort((a, b) => (a.date < b.date ? -1 : 1))
     .map((e) => { const r = e.reps.filter((x) => x != null); return { date: e.date.slice(5), total: r.reduce((a, b) => a + b, 0), best: Math.max(...r), kg: e.kg }; });
-  const [lift, setLift] = useState(LIFTS[0]);
+  const isHoldEx = setEntries.some((e) => e.ex === ex && e.kind === "hold");
+  const legacy = [...new Set(logs.map((l) => l.lift))].filter((l) => !MEASURES.includes(l));
+  const [lift, setLift] = useState(MEASURES[0]);
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
   const add = () => {
@@ -1472,26 +1698,28 @@ function ProgressView({ logs, setLogs, sets, accent }) {
           <select value={ex} onChange={(e) => setEx(e.target.value)} style={{ ...S.select, width: "100%", marginBottom: 8 }}>
             {exNames.map((n) => <option key={n}>{n}</option>)}
           </select>
-          {exSeries.length < 2 ? <p style={S.muted}>Log this exercise in two sessions to see a trend. Latest: {exSeries.slice(-1)[0]?.total} reps.</p> : (
+          {exSeries.length < 2 ? <p style={S.muted}>Log this exercise in two sessions to see a trend. Latest: {exSeries.slice(-1)[0]?.total}{isHoldEx ? "s held" : " reps"}.</p> : (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={exSeries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e7e2d8" />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#6b665d" }} />
                 <YAxis tick={{ fontSize: 11, fill: "#6b665d" }} />
                 <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #ddd", fontSize: 13 }} />
-                <Line type="monotone" dataKey="total" name="total reps" stroke={accent} strokeWidth={2.5} dot={{ r: 3, fill: accent }} />
+                <Line type="monotone" dataKey="total" name={isHoldEx ? "total seconds" : "total reps"} stroke={accent} strokeWidth={2.5} dot={{ r: 3, fill: accent }} />
                 <Line type="monotone" dataKey="best" name="best set" stroke="#9a958c" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           )}
-          <div style={S.muted2}>Logged directly under each exercise in Today / Week. Solid = total reps, dashed = best set.</div>
+          <div style={S.muted2}>Logged under each exercise in Today / Week. Solid = total {isHoldEx ? "seconds" : "reps"}, dashed = best set.</div>
         </div>
       )}
       <div style={S.card}>
-        <h2 style={S.cardTitle}>Log a number</h2>
+        <h2 style={S.cardTitle}>Other measures</h2>
+        <p style={{ ...S.muted2, marginTop: -4, marginBottom: 8 }}>Tests and body numbers — your session sets are logged under each exercise.</p>
         <div style={S.formRow}>
           <select value={lift} onChange={(e) => setLift(e.target.value)} style={S.select}>
-            {LIFTS.map((l) => <option key={l}>{l}</option>)}
+            {MEASURES.map((l) => <option key={l}>{l}</option>)}
+            {legacy.length > 0 && <optgroup label="Older entries">{legacy.map((l) => <option key={l}>{l}</option>)}</optgroup>}
           </select>
           <input type="number" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} style={S.input} />
         </div>
@@ -1727,7 +1955,101 @@ function SaunaView({ saunas, setSaunas, accent }) {
   );
 }
 
-function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp, accent }) {
+// ============================================================================
+// COACH — PROGRESSION PANEL (rule-based, transparent, reversible)
+// Reads every logged set, shows what the engine changed and why, and only raises
+// a block-level flag (deload) when several signals agree — one bad day never does.
+// ============================================================================
+const ALL_EXERCISES = (() => {
+  const m = new Map();
+  BLOCKS.forEach((b) => Object.values(b.days).forEach((d) => (d.exercises || []).forEach((ex) => { if (exKind(ex) && !m.has(ex.name)) m.set(ex.name, ex); })));
+  return [...m.values()];
+})();
+
+function coachSignals(sets, targets) {
+  return ALL_EXERCISES.map((ex) => ({ ex, p: progressionFor(ex, sets, targets) }))
+    .filter(({ p }) => p && p.n > 0)
+    .map(({ ex, p }) => {
+      const last = p.last;
+      const lastDate = Object.values(sets).filter((e) => e.ex === ex.name && vals(e).length).map((e) => e.date).sort().pop();
+      return { ex, p, last, lastDate, dir: last?.dir || "hold" };
+    })
+    .sort((a, b) => (a.lastDate < b.lastDate ? 1 : -1));
+}
+
+function readinessStats(readiness, days = 7) {
+  const from = addDays(todayKey(), -(days - 1));
+  const entries = Object.entries(readiness || {}).filter(([d]) => d >= from);
+  const low = entries.filter(([, r]) => readinessLevel(r) !== "full").length;
+  return { answered: entries.length, low };
+}
+
+function ProgressionPanel({ sets, targets, setTargets, readiness, isDeload, setDeload, week, accent }) {
+  const sig = coachSignals(sets || {}, targets || {});
+  const rs = readinessStats(readiness);
+  const recent = addDays(todayKey(), -10);
+  const downs = sig.filter((s) => s.dir === "down" && s.last?.date >= recent);
+  const shortish = sig.filter((s) => s.lastDate >= recent && /under|short/i.test(s.last?.text || "")).length;
+  // deload only when evidence converges: 2+ targets eased, or a rough week AND performance slipping
+  const suggestDeload = !isDeload && (downs.length >= 2 || (rs.low >= 3 && shortish >= 2));
+  const icon = { up: "↑", down: "↓", hold: "→", set: "✎" };
+  const col = { up: "#6a8d3f", down: "#c9962e", hold: "#9a958c", set: accent };
+
+  if (!sig.length) {
+    return (
+      <div style={{ ...S.tagBox, borderColor: accent }}>
+        <strong style={{ color: accent }}>Progression.</strong> Log a few sessions (reps under each exercise, holds via the timer, and how it felt) — this panel then shows what should move up, hold, or ease off, and why.
+      </div>
+    );
+  }
+  return (
+    <div style={S.card}>
+      <div style={S.cardTop}>
+        <h2 style={{ ...S.cardTitle, margin: 0 }}>Progression</h2>
+        <span style={S.muted2}>{rs.answered ? `${rs.low}/${rs.answered} low days this week` : "no check-ins yet"}</span>
+      </div>
+      {suggestDeload && (
+        <div style={{ ...S.warnBox, margin: "8px 0" }}>
+          <strong>Consider a deload for week {week}.</strong>{" "}
+          {downs.length >= 2 ? `${downs.length} targets eased in the last 10 days` : `${rs.low} low-readiness days and performance slipping`} — that's the pattern of accumulated fatigue, not one bad day.
+          <div style={{ marginTop: 8 }}><button onClick={setDeload} style={S.swapResetBtn}>Make week {week} a deload</button></div>
+        </div>
+      )}
+      {sig.map(({ ex, p, last, dir }) => {
+        const canUndo = p.kind === "hold" && (dir === "up" || dir === "down") && last?.from != null;
+        return (
+          <div key={ex.name} style={S.progRow}>
+            <span style={{ ...S.progIcon, color: col[dir] }}>{icon[dir]}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <strong style={{ fontSize: 13.5 }}>{ex.name}</strong>
+                {p.kind === "hold" && <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, color: col[dir] }}>{p.target}s</span>}
+              </div>
+              <div style={{ fontSize: 12.5, color: "#6b665d", lineHeight: 1.4 }}>
+                {last?.text || (p.kind === "hold" ? `Holding at ${p.target}s` : "Logged — keep going")}{p.pending ? ` · ${p.pending}` : ""}{p.atCap ? " · at 2× the plan: progress the variation" : ""}
+              </div>
+              {canUndo && (
+                <button onClick={() => setTargets({ ...targets, [ex.name]: { sec: last.from, date: todayKey() } })} style={{ ...S.timerReset, paddingLeft: 0 }}>
+                  keep it at {last.from}s instead
+                </button>
+              )}
+              {targets?.[ex.name] && (
+                <button onClick={() => { const t = { ...targets }; delete t[ex.name]; setTargets(t); }} style={{ ...S.timerReset, paddingLeft: 0, marginLeft: canUndo ? 10 : 0 }}>
+                  back to automatic
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ ...S.routineFootnote, fontStyle: "normal" }}>
+        Holds: +5s after two clean sessions (one, if it felt easy); −5s after two short ones. Reps: every set at the top of the range → add load. Days you checked in as low can move you up but never down.
+      </div>
+    </div>
+  );
+}
+
+function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp, accent, sets, targets, setTargets, readiness, setDeload }) {
   // Day-aware bonus suggestion: pick the most fitting side-quest for today's context.
   const bonusSuggestion = (() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -1773,11 +2095,22 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp,
     const rideSummary = wkMon.length ? `${weekAerobic(rides)} easy-aerobic min since Monday over ${wkMon.length} sessions (${wkMon.filter(r=>r.kind==="hill").length} hill climbs, ${wkMon.filter(r=>r.kind==="walk").length} walks, ${wkMon.filter(r=>r.effort==="Hard").length} hard)` : "none since Monday";
     const wkBonus = (bonusLog || []).filter((b) => b.date >= weekAgo);
     const bonusSummary = wkBonus.length ? `${wkBonus.filter(b=>b.kind==="skill").length} skill + ${wkBonus.filter(b=>b.kind==="mobility").length} mobility this week` : "none this week";
+    const since = addDays(todayKey(), -14);
+    const setLines = Object.values(sets || {}).filter((e) => e.date >= since && vals(e).length)
+      .sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-30)
+      .map((e) => `${e.date} ${e.ex}: ${vals(e).join("/")}${e.kind === "hold" ? "s (target " + e.target + "s)" : ""}${e.kg ? " @" + e.kg + "kg" : ""}${e.feel ? " felt " + e.feel : ""}${e.readiness && e.readiness !== "full" ? " [" + e.readiness + " day]" : ""}`);
+    const sigLines = coachSignals(sets || {}, targets || {}).map((x) => `${x.ex.name}: ${x.p.kind === "hold" ? "target " + x.p.target + "s; " : ""}${x.last?.text || ""}`);
+    const rs = readinessStats(readiness);
+    const todayR = readiness?.[todayKey()];
     const system = `You are a concise S&C coach in a training app.
 PROGRAM: 24-week concurrent, CYCLE 2, 8-week blocks — Strength(w1-8), Endurance(w9-16), Flexibility(w17-24). One priority/block, others maintain (~1/3 vol).
 CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Endurance in this block is a floor: 60-90 easy aerobic min/week. Main vehicle is the evening bike climb home (2.3km, +139m, ~6%, ~15min) — keep it easy (lowest gear, nose breathing). Uphill walk (~38min) is the winter/ice fallback. Main bike under repair; morning commute is dark, so no long commutes for now. Weeks 4, 6, 8: ride the hill once as 4×(1min hard/2min easy), ideally Tue or Fri, not the evening before Wed legs; skip if sleep/stress is poor. No other hard rides. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, a second bike for short rides; plans rings+kettlebell.
 RECOVERY/SAUNA: best on rest/cardio/short days; not right after heavy strength (blunts hypertrophy signal); before stretching deepens range. ~48h between HARD same-tissue sessions; sub-maximal skill/mobility can be daily.
 STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume ~40-50%, reps in reserve)" : ramp ? `, ${ramp.label}: ${ramp.text}` : ""}. Logs: ${logSummary}. Sauna: ${saunaSummary}. Bike: ${rideSummary}. Bonus: ${bonusSummary}.
+SETS (last 14 days, logged per exercise; holds in seconds): ${setLines.length ? setLines.join("; ") : "none yet"}.
+PROGRESSION ENGINE (rule-based, already applied in the app): ${sigLines.length ? sigLines.join("; ") : "no data yet"}. Rules: holds +5s after 2 clean sessions (1 if felt easy), −5s after 2 short sessions on normal days, capped at 2× plan (then progress the variation); reps use double progression (all sets at top of range → +2.5kg or harder variation; under the floor twice → ease off). Low-readiness days can raise but never lower targets.
+READINESS: today ${todayR ? `sleep ${todayR.sleep || "?"}, stress ${todayR.stress || "?"} → ${readinessLevel(todayR)}` : "no check-in"}; ${rs.low} low of ${rs.answered} check-ins in 7 days. Readiness scales only the day's sets (trim ¾, easy ½).
+When reading progress: build on the engine's signals, explain the why, and only recommend overriding them with a concrete reason (pain, technique breakdown, a pattern across several exercises or weeks). Prefer stability: one session is noise, two agree is a signal, a week of convergent signals justifies a deload.
 BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
 STYLE: practical, <120 words unless asked. Concrete adjustments. Flag recovery conflicts. Don't invent data. Not medical advice; caution with pain.`;
     try {
@@ -1797,6 +2130,7 @@ STYLE: practical, <120 words unless asked. Concrete adjustments. Flag recovery c
   const quick = ["I'm sore — adjust today", "Should I deload this week?", "Sauna timing for today?", "Read my progress"];
   return (
     <div style={S.body}>
+      <ProgressionPanel sets={sets} targets={targets} setTargets={setTargets} readiness={readiness} isDeload={isDeload} setDeload={setDeload} week={week} accent={accent} />
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
         <div ref={scrollRef} style={S.chatScroll}>
           {messages.map((m, i) => (
@@ -1818,7 +2152,7 @@ STYLE: practical, <120 words unless asked. Concrete adjustments. Flag recovery c
           <button onClick={send} disabled={busy} style={{ ...S.primaryBtn, background: accent, opacity: busy ? 0.5 : 1 }}>Send</button>
         </div>
       </div>
-      <p style={S.muted}>The coach knows your week, deload state, logs and sauna history.</p>
+      <p style={S.muted}>The coach sees your week, sets and how they felt, check-ins, cardio, sauna and bonuses.</p>
     </div>
   );
 }
@@ -1836,10 +2170,10 @@ const FONT_BODY = "'Spline Sans', system-ui, sans-serif";
 const PAPER = "#faf7f0";
 
 const S = {
-  shell: { fontFamily: FONT_BODY, background: PAPER, minHeight: "100vh", maxWidth: 720, margin: "0 auto", padding: "22px 18px 60px", color: "#2a261f" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "3px solid", paddingBottom: 14, marginBottom: 14, gap: 12 },
+  shell: { fontFamily: FONT_BODY, background: PAPER, minHeight: "100vh", maxWidth: 720, margin: "0 auto", padding: "16px 16px calc(96px + env(safe-area-inset-bottom))", color: "#2a261f" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "3px solid", paddingBottom: 10, marginBottom: 10, gap: 12 },
   kicker: { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#9a958c", fontWeight: 600 },
-  h1: { fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 600, margin: "4px 0 0", lineHeight: 1.1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  h1: { fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 600, margin: "4px 0 0", lineHeight: 1.1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 },
   deloadBadge: { fontSize: 10, fontFamily: FONT_BODY, letterSpacing: 1, background: "#c9962e", color: "#fff", padding: "3px 8px", borderRadius: 6, fontWeight: 700 },
   stepper: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 },
   stepBtn: { width: 34, height: 34, borderRadius: "50%", border: "1px solid #d8d2c5", background: "#fff", fontSize: 20, cursor: "pointer", color: "#6b665d", lineHeight: 1 },
@@ -1933,6 +2267,28 @@ const S = {
   chatInputRow: { display: "flex", gap: 8, padding: 12, borderTop: "1px solid #f0ece2" },
   chatInput: { flex: 1, padding: "11px 14px", borderRadius: 10, border: "1px solid #e2dcd0", fontFamily: FONT_BODY, fontSize: 14 },
   muted: { color: "#9a958c", fontSize: 13.5, lineHeight: 1.5 },
+  gear: { position: "relative", width: 40, height: 40, borderRadius: "50%", border: "1px solid #e2dcd0", background: "#fff", fontSize: 19, color: "#6b665d", cursor: "pointer", flexShrink: 0, lineHeight: 1 },
+  gearDot: { position: "absolute", top: 2, right: 2, width: 9, height: 9, borderRadius: "50%", border: "2px solid #fff" },
+  bottomNav: { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, display: "flex", justifyContent: "center", gap: 0, background: "#fffdf8ee", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderTop: "1px solid #e7e1d4", padding: "6px 8px calc(6px + env(safe-area-inset-bottom))" },
+  bottomBtn: { flex: "0 1 120px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "6px 0", border: "none", background: "none", fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" },
+  segRow: { display: "flex", gap: 6, background: "#efeae0", padding: 4, borderRadius: 12 },
+  segBtn: { flex: 1, padding: "9px 6px", borderRadius: 9, border: "1px solid transparent", background: "transparent", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: "#6b665d", cursor: "pointer" },
+  sheetBackdrop: { position: "fixed", inset: 0, background: "#0006", zIndex: 40, display: "flex", alignItems: "flex-end", justifyContent: "center" },
+  sheet: { background: PAPER, width: "100%", maxWidth: 720, borderRadius: "18px 18px 0 0", padding: "18px 18px calc(24px + env(safe-area-inset-bottom))", maxHeight: "88vh", overflowY: "auto" },
+  sheetSection: { fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", fontWeight: 700, color: "#9a958c", margin: "18px 0 8px" },
+  sheetRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 14, fontWeight: 600 },
+  readyBar: { display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, padding: "10px 14px", background: "#fff", borderRadius: 12, boxShadow: "0 1px 3px #0000000d" },
+  readyDot: { width: 10, height: 10, borderRadius: "50%", flexShrink: 0 },
+  readyRow: { display: "flex", alignItems: "center", gap: 6, marginTop: 6 },
+  readyLbl: { width: 52, fontSize: 13, fontWeight: 600, color: "#6b665d" },
+  readyOpt: { flex: 1, height: 36, borderRadius: 9, border: "1px solid #e2dcd0", background: "#fff", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: "#6b665d", cursor: "pointer" },
+  weekNav: { display: "flex", alignItems: "center", gap: 10 },
+  targetRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", fontSize: 13, marginTop: 8, color: "#4a463e" },
+  targetPill: { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, padding: "3px 10px", borderRadius: 999, border: "1px solid", background: "#fff", cursor: "pointer", marginLeft: 4 },
+  progRow: { display: "flex", gap: 10, padding: "10px 0", borderBottom: "1px solid #f3efe6" },
+  progIcon: { fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, width: 16, textAlign: "center", lineHeight: 1.2 },
+  feelRow: { display: "flex", alignItems: "center", gap: 6, marginTop: 8 },
+  feelBtn: { flex: 1, height: 32, borderRadius: 8, border: "1px solid #e2dcd0", background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: "#6b665d", cursor: "pointer" },
   muted2: { color: "#9a958c", fontSize: 12 },
   footer: { marginTop: 14, textAlign: "center", fontSize: 11.5, color: "#b5afa2", lineHeight: 1.5 },
   dataRow: { display: "flex", gap: 8, justifyContent: "center", marginTop: 24 },
