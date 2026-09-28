@@ -277,16 +277,14 @@ const BLOCKS = [
   {
     id: "strength", name: "Strength", weeks: [1, 8], accent: "#2e6e8e",
     tag: "Rebuild first, then overload. Weeks 1–2 are re-entry after the break; real progression starts week 3. Heavy legs are the gap bodyweight can't fill.",
-    // Endurance in a strength block = a floor, not a goal. Two layers:
-    //  1. Every week: 2 easy rides (commutes count) — keeps capillaries/mitochondria
-    //     from fading further at near-zero recovery cost.
-    //  2. Weeks 4, 6, 8 (Sat): one short, optional interval "touch" — primes the
-    //     Endurance block that follows in week 9 so it doesn't start from zero.
-    //     Placed on Saturday: 48h+ before Monday (upper body) and far from Wed legs.
-    aerobicFloor: "Every week: 2 easy rides (commutes count), conversational pace. Weeks 4, 6 and 8: one optional short interval touch on Saturday — skip it without guilt if sleep or stress is off.",
-    weekOverrides: {
-      4: { 6: "INTERVAL_TOUCH" }, 6: { 6: "INTERVAL_TOUCH" }, 8: { 6: "INTERVAL_TOUCH" },
-    },
+    // Endurance in a strength block = a floor, not a goal.
+    //  1. Every week: 60–90 min EASY aerobic time. Main vehicle: the evening hill
+    //     climb home (2.3 km, +139 m, ~6%) — ~15 min × 5 evenings ≈ 75 min.
+    //     Frequency beats duration for a floor; easy = nose-breathing, lowest gear.
+    //  2. Weeks 4, 6, 8: ride the hill ONCE as intervals (4 × 1 min hard / 2 min easy
+    //     ≈ the length of the climb) — primes the Endurance block starting week 9.
+    aerobicFloor: { min: 60, max: 90, touchWeeks: [4, 6, 8],
+      text: "60–90 min easy aerobic per week. Hill climbs home, easy rides and uphill walks all count. Easy = you could breathe through your nose: lowest gear, high cadence." },
     // Re-entry ramp after a ~3-month layoff. Keyed by week-within-block.
     // Why: muscle memory brings strength back fast, but tendons/connective tissue
     // re-adapt slower than muscle — and life stress draws on the same recovery budget.
@@ -378,22 +376,35 @@ const BLOCKS = [
   },
 ];
 
-// Optional short VO2 "touch" used inside the Strength block (see weekOverrides).
-const INTERVAL_TOUCH = {
-  type: "optional", title: "Endurance touch (optional)",
-  body: "Short interval primer: 10 min easy → 4 × (1 min hard / 2 min easy) → 5 min easy. ~25 min on the bike. Only if you slept OK and stress is manageable — otherwise just ride easy.",
-  sauna: "good",
-  exercises: [
-    { name: "Warm-up", dose: "10 min easy", seconds: 600, cue: "Easy spin, last 2 min a bit brisker." },
-    { name: "Hard / easy intervals", dose: "4 rounds", cue: "Hard but controlled — about 8/10, not all-out. The goal is to remind the system, not to exhaust it.", interval: { work: 60, rest: 120, rounds: 4, workLabel: "HARD", restLabel: "easy" } },
-    { name: "Cool-down", dose: "5 min easy", seconds: 300, cue: "Let the heart rate settle." },
-  ],
-};
+// Hill intervals: the evening climb (~12–15 min) ridden as 4 × (1 min hard / 2 min easy).
+const HILL_INTERVALS = { work: 60, rest: 120, rounds: 4, workLabel: "HARD", restLabel: "easy" };
+
+// Quick-log presets for the Cardio tab. Minutes are what count toward the weekly floor.
+const QUICK_LOGS = [
+  { kind: "hill", icon: "⛰", label: "Hill climb", km: 2.3, effort: "Easy", minKey: "hillMins", defMin: 15, note: "Easy climb home" },
+  { kind: "walk", icon: "🚶", label: "Hill walk", km: 2.3, effort: "Easy", minKey: "walkMins", defMin: 38, note: "Walked up the hill" },
+  { kind: "hill-intervals", icon: "⚡", label: "Hill intervals", km: 2.3, effort: "Hard", minKey: "hillMins", defMin: 15, note: "4 × 1 min hard / 2 min easy", touchOnly: true },
+];
+const KIND_ICON = { hill: "⛰", walk: "🚶", "hill-intervals": "⚡", ride: "🚲" };
+
+// Local Monday (YYYY-MM-DD) of the current week — the floor resets Monday.
+function mondayKey() {
+  const d = new Date(); const back = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - back);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Older ride entries have no minutes — estimate ~3 min/km (easy ~20 km/h).
+const aerobicMins = (r) => (r.minutes != null ? r.minutes : Math.round((r.km || 0) * 3));
+const weekAerobic = (rides) => (rides || []).filter((r) => r.date >= mondayKey()).reduce((n, r) => n + aerobicMins(r), 0);
+function isTouchWeek(block, week) {
+  const f = block.aerobicFloor; if (!f) return false;
+  return f.touchWeeks.includes(week - block.weeks[0] + 1);
+}
+
 // Resolve which session sits on a canonical dayKey in a given week (block template + per-week overrides).
 function daySession(block, week, dayKey) {
   const wib = week - block.weeks[0] + 1;
   const o = block.weekOverrides?.[wib]?.[dayKey];
-  if (o === "INTERVAL_TOUCH") return INTERVAL_TOUCH;
   return o || block.days[dayKey];
 }
 
@@ -631,7 +642,7 @@ export default function TrainingApp() {
       </div>
 
       <nav style={S.nav}>
-        {[["today", "Today"], ["week", "Week"], ["bonus", "Bonus"], ["progress", "Progress"], ["bike", "Bike"], ["sauna", "Sauna"], ["coach", "Coach"]].map(([k, label]) => (
+        {[["today", "Today"], ["week", "Week"], ["bonus", "Bonus"], ["progress", "Progress"], ["bike", "Cardio"], ["sauna", "Sauna"], ["coach", "Coach"]].map(([k, label]) => (
           <button key={k} onClick={() => setView(k)}
             style={{ ...S.navBtn, ...(view === k ? { background: accent, color: "#fff", borderColor: accent } : {}) }}>
             {label}
@@ -640,11 +651,11 @@ export default function TrainingApp() {
       </nav>
 
       {!loaded ? <div style={S.muted}>Loading…</div>
-        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} ramp={ramp} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
-        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} ramp={ramp} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
+        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
+        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} ramp={ramp} rides={rides} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
         : view === "progress" ? <ProgressView logs={logs} setLogs={persistLogs} accent={accent} />
         : view === "bonus" ? <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={accent} hsLevel={hsBonusLevel} setHsLevel={persistHsBonusLevel} />
-        : view === "bike" ? <RideView rides={rides} setRides={persistRides} accent={accent} />
+        : view === "bike" ? <RideView rides={rides} setRides={persistRides} accent={accent} block={block} week={week} />
         : view === "sauna" ? <SaunaView saunas={saunas} setSaunas={persistSaunas} accent={accent} />
         : <CoachView week={week} block={block} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog} isDeload={isDeload} ramp={ramp} accent={accent} />}
 
@@ -692,7 +703,40 @@ function BlockBar({ week }) {
   );
 }
 
-function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTier, srcForDay }) {
+// Weekly easy-aerobic progress: minutes logged since Monday vs the block's floor.
+function FloorCard({ block, week, rides, compact }) {
+  const f = block.aerobicFloor; if (!f) return null;
+  const mins = weekAerobic(rides);
+  const touch = isTouchWeek(block, week);
+  const touchDone = (rides || []).some((r) => r.date >= mondayKey() && r.kind === "hill-intervals");
+  const RED = "#d9543f";
+  const pct = Math.min(100, (mins / f.max) * 100);
+  const status = mins >= f.max ? "Floor covered — more isn't needed this block."
+    : mins >= f.min ? "In the range. Anything extra is a bonus."
+    : `${f.min - mins} min to go — about ${Math.ceil((f.min - mins) / 15)} hill climb${Math.ceil((f.min - mins) / 15) === 1 ? "" : "s"}.`;
+  return (
+    <div style={{ ...S.tagBox, borderColor: RED }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <strong style={{ color: RED }}>Easy aerobic this week</strong>
+        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: mins >= f.min ? "#6a8d3f" : RED }}>
+          {mins}<span style={{ fontSize: 12, color: "#9a958c" }}> / {f.min}–{f.max} min</span>
+        </span>
+      </div>
+      <div style={{ ...S.timerTrack, height: 7, marginTop: 6, position: "relative" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: mins >= f.min ? "#6a8d3f" : RED, borderRadius: 3, transition: "width .4s" }} />
+        <div style={{ position: "absolute", left: `${(f.min / f.max) * 100}%`, top: 0, bottom: 0, width: 2, background: "#fff" }} />
+      </div>
+      <div style={{ fontSize: 12.5, marginTop: 6 }}>{status}{!compact && ` ${f.text}`}</div>
+      {touch && (
+        <div style={{ fontSize: 12.5, marginTop: 6, color: touchDone ? "#6a8d3f" : "#8a5a1e" }}>
+          {touchDone ? "✓ Hill intervals done this week." : "⚡ Interval week: one evening, ride the hill as 4 × (1 min hard / 2 min easy). Best Tue or Fri — not the evening before legs. Skip if sleep or stress is off."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TodayView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier, setHsTier, srcForDay }) {
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
@@ -705,11 +749,7 @@ function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsT
       <div style={{ ...S.tagBox, borderColor: accent }}>
         <strong style={{ color: accent }}>{block.name} block.</strong> {block.tag}
       </div>
-      {block.aerobicFloor && (
-        <div style={{ ...S.tagBox, borderColor: "#d9543f" }}>
-          <strong style={{ color: "#d9543f" }}>Endurance this block.</strong> {block.aerobicFloor}
-        </div>
-      )}
+      <FloorCard block={block} week={week} rides={rides} />
       {ramp && !isDeload && (
         <div style={{ ...S.tagBox, borderColor: accent }}>
           <strong style={{ color: accent }}>Why ease in?</strong> Strength returns fast after a break (the nervous-system skill is largely retained), but tendons re-adapt more slowly than muscle — and life stress draws on the same recovery budget as training. Two easy weeks cost almost nothing and buy the next six.
@@ -719,7 +759,7 @@ function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsT
   );
 }
 
-function WeekView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
+function WeekView({ week, accent, isDeload, ramp, rides, done, setDone, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
   const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
   const completed = order.filter((k) => done[`W${week}-${k}`]).length;
@@ -737,11 +777,7 @@ function WeekView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTi
       <div style={{ ...S.tagBox, borderColor: accent, marginBottom: 2 }}>
         <strong style={{ color: accent }}>{completed}/7 logged this week.</strong> Tap a card to mark done · ⇄ to swap days.
       </div>
-      {block.aerobicFloor && (
-        <div style={{ ...S.tagBox, borderColor: "#d9543f" }}>
-          <strong style={{ color: "#d9543f" }}>Endurance floor:</strong> 2 easy rides this week (commutes count).
-        </div>
-      )}
+      <FloorCard block={block} week={week} rides={rides} compact />
 
       {hardDayWarnings.length > 0 && (
         <div style={S.warnBox}>
@@ -1351,67 +1387,127 @@ function ProgressView({ logs, setLogs, accent }) {
 }
 
 // ---------------- Sauna logger ----------------
-function RideView({ rides, setRides, accent }) {
+function RideView({ rides, setRides, accent, block, week }) {
+  // typical durations for the one-tap presets — editable, remembered on this device
+  const [mins, setMins] = useState({ hillMins: 15, walkMins: 38 });
+  useEffect(() => { (async () => {
+    try { const v = await Store.get("quickMins"); if (v) setMins((m) => ({ ...m, ...JSON.parse(v) })); } catch (e) {}
+  })(); }, []);
+  const setMin = (k, v) => { const n = { ...mins, [k]: v }; setMins(n); Store.set("quickMins", JSON.stringify(n)); };
+
+  const [flash, setFlash] = useState(null);
+  const [showTimer, setShowTimer] = useState(false);
+  const touch = isTouchWeek(block, week) || !block.aerobicFloor;   // intervals: planned weeks, or any week outside the Strength block
+
+  const quickLog = (q) => {
+    const m = Number(mins[q.minKey]) || q.defMin;
+    setRides([...rides, { date: todayKey(), km: q.km, minutes: m, effort: q.effort, kind: q.kind, note: q.note }]);
+    setFlash(`${q.icon} ${q.label} logged · ${m} min`);
+    setTimeout(() => setFlash(null), 2500);
+  };
+
+  // custom entry
+  const [kind, setKind] = useState("ride");
   const [km, setKm] = useState("");
+  const [minutes, setMinutes] = useState("");
   const [effort, setEffort] = useState("Easy");
   const [note, setNote] = useState("");
   const EFFORTS = ["Easy", "Moderate", "Hard"];
   const add = () => {
-    const d = parseFloat(km); if (isNaN(d)) return;
-    setRides([...rides, { date: todayKey(), km: d, effort, note: note.trim() }]);
-    setKm(""); setNote("");
+    const d = parseFloat(km), m = parseFloat(minutes);
+    if (isNaN(d) && isNaN(m)) return;
+    setRides([...rides, { date: todayKey(), km: isNaN(d) ? 0 : d, ...(isNaN(m) ? {} : { minutes: m }), effort, kind, note: note.trim() }]);
+    setKm(""); setMinutes(""); setNote("");
   };
   const removeAt = (i) => setRides(rides.filter((_, idx) => idx !== i));
 
-  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  const week = rides.filter((r) => r.date >= weekAgo);
-  const weekKm = week.reduce((s, r) => s + r.km, 0);
-  const hardCount = week.filter((r) => r.effort === "Hard").length;
-  const recent = [...rides].reverse().slice(0, 10);
-
-  // simple "load" read: 2 easy rides = great; 2+ hard = watch recovery
-  const loadNote = hardCount >= 2
-    ? "Two+ hard rides this week — that's real leg load. Keep intervals well clear and watch for heavy legs."
-    : week.length >= 2
-    ? "Nicely distributed aerobic work. Easy back-to-back rides recover well."
-    : week.length === 1
-    ? "One ride banked. A second easy ride this week is fine — keeps your base building."
-    : "No rides logged this week yet.";
+  const wk = rides.filter((r) => r.date >= mondayKey());
+  const hardCount = wk.filter((r) => r.effort === "Hard").length;
+  const recent = [...rides].reverse().slice(0, 12);
 
   return (
     <div style={S.body}>
-      <div style={{ ...S.card, borderLeft: `5px solid ${accent}` }}>
-        <div style={S.cardTop}>
-          <h2 style={S.cardTitle}>This week</h2>
-          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: accent }}>
-            {weekKm}<span style={{ fontSize: 14, color: "#9a958c" }}> km</span>
-          </span>
+      {block.aerobicFloor ? <FloorCard block={block} week={week} rides={rides} compact /> : (
+        <div style={{ ...S.card, borderLeft: `5px solid ${accent}` }}>
+          <div style={S.cardTop}>
+            <h2 style={S.cardTitle}>This week</h2>
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 700, color: accent }}>
+              {weekAerobic(rides)}<span style={{ fontSize: 14, color: "#9a958c" }}> min</span>
+            </span>
+          </div>
+          <p style={S.muted}>{wk.length} session{wk.length === 1 ? "" : "s"}{hardCount ? ` · ${hardCount} hard` : ""}.
+            {hardCount >= 2 ? " Two+ hard efforts — keep them well clear of intervals and legs." : ""}</p>
         </div>
-        <p style={S.muted}>{week.length} ride{week.length === 1 ? "" : "s"}{hardCount ? ` · ${hardCount} hard` : ""}. {loadNote}</p>
-      </div>
+      )}
+
       <div style={S.card}>
-        <h2 style={S.cardTitle}>Log a ride</h2>
+        <h2 style={S.cardTitle}>One-tap log</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {QUICK_LOGS.filter((q) => !q.touchOnly || touch).map((q) => (
+            <div key={q.kind} style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+              <button onClick={() => quickLog(q)}
+                style={{ ...S.primaryBtn, flex: 1, textAlign: "left", fontSize: 15, padding: "14px 16px",
+                  background: q.effort === "Hard" ? "#d9543f" : accent }}>
+                {q.icon} {q.label} <span style={{ opacity: 0.8, fontWeight: 500, fontSize: 13 }}>· {q.effort.toLowerCase()}</span>
+              </button>
+              <label style={S.quickMinBox} title="Typical minutes for this preset">
+                <input type="number" value={mins[q.minKey]} onChange={(e) => setMin(q.minKey, e.target.value)}
+                  style={S.quickMinInput} />
+                <span style={{ fontSize: 10.5, color: "#9a958c" }}>min</span>
+              </label>
+            </div>
+          ))}
+        </div>
+        {flash && <div style={{ ...S.swapBanner, marginTop: 10 }}>
+          <span>✓ {flash}</span>
+          <button onClick={() => { setRides(rides.slice(0, -1)); setFlash(null); }} style={S.swapResetBtn}>Undo</button>
+        </div>}
+        <p style={{ ...S.muted2, marginTop: 10 }}>
+          Easy = you could breathe through your nose. On the climb: lowest gear, high cadence — if you're gasping, slow down. The minutes box sets your usual time for each button.
+        </p>
+        {touch && (
+          <>
+            <button onClick={() => setShowTimer(!showTimer)}
+              style={{ ...S.routineToggle, color: "#d9543f", borderColor: "#d9543f44", marginTop: 8 }}>
+              {showTimer ? "▾ Hide hill-interval timer" : "▸ Hill-interval timer · 4 × 1 min hard / 2 min easy"}
+            </button>
+            {showTimer && <>
+              <p style={{ ...S.muted2, marginTop: 8 }}>Start at the bottom. Hard ≈ 8/10 — controlled, not all-out. The goal is a reminder, not exhaustion. Log it with ⚡ when you're home.</p>
+              <IntervalTimer config={HILL_INTERVALS} accent="#d9543f" />
+            </>}
+          </>
+        )}
+      </div>
+
+      <div style={S.card}>
+        <h2 style={S.cardTitle}>Log something else</h2>
         <div style={S.formRow}>
-          <input type="number" placeholder="km" value={km} onChange={(e) => setKm(e.target.value)} style={S.input} />
+          <select value={kind} onChange={(e) => setKind(e.target.value)} style={S.select}>
+            <option value="ride">🚲 Ride</option>
+            <option value="walk">🚶 Walk / hike</option>
+          </select>
           <select value={effort} onChange={(e) => setEffort(e.target.value)} style={S.select}>
             {EFFORTS.map((c) => <option key={c}>{c}</option>)}
           </select>
         </div>
-        <input placeholder="note (optional) — e.g. commute, headwind" value={note}
+        <div style={{ ...S.formRow, marginTop: 8 }}>
+          <input type="number" placeholder="minutes" value={minutes} onChange={(e) => setMinutes(e.target.value)} style={S.input} />
+          <input type="number" placeholder="km (optional)" value={km} onChange={(e) => setKm(e.target.value)} style={S.input} />
+        </div>
+        <input placeholder="note (optional)" value={note}
           onChange={(e) => setNote(e.target.value)} style={{ ...S.input, width: "100%", marginTop: 8 }} />
-        <button onClick={add} style={{ ...S.primaryBtn, background: accent, marginTop: 10 }}>Log ride</button>
+        <button onClick={add} style={{ ...S.primaryBtn, background: accent, marginTop: 10 }}>Log</button>
         {effort === "Hard" &&
-          <p style={{ ...S.muted2, marginTop: 8, color: "#c9962e" }}>A hard ride counts like an interval session for your legs — don't stack it next to one.</p>}
-        {effort === "Easy" &&
-          <p style={{ ...S.muted2, marginTop: 8, color: "#6a8d3f" }}>Easy rides are your aerobic base — highly recoverable, safe to repeat.</p>}
+          <p style={{ ...S.muted2, marginTop: 8, color: "#c9962e" }}>A hard ride counts like an interval session for your legs — don't stack it next to leg day.</p>}
       </div>
+
       <div style={S.card}>
-        <h2 style={S.cardTitle}>Recent rides</h2>
-        {recent.length === 0 ? <p style={S.muted}>No rides logged yet.</p> :
+        <h2 style={S.cardTitle}>Recent</h2>
+        {recent.length === 0 ? <p style={S.muted}>Nothing logged yet.</p> :
           recent.map((r, i) => (
             <div key={i} style={S.logRow}>
-              <span style={{ fontWeight: 600 }}>{r.km} km</span>
-              <span style={S.logLift}>{r.effort}</span>
+              <span style={{ fontWeight: 600 }}>{KIND_ICON[r.kind] || "🚲"} {aerobicMins(r)} min</span>
+              <span style={S.logLift}>{r.km ? `${r.km} km · ` : ""}{r.effort}</span>
               <span style={S.muted2}>{r.date.slice(5)}</span>
               {r.note && <span style={S.logNote}>"{r.note}"</span>}
               <button onClick={() => removeAt(rides.length - 1 - i)} style={S.delBtn}>×</button>
@@ -1526,12 +1622,13 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp,
     const saunaSummary = saunas.length ? `${saunas.slice(-7).length} recent (last: ${saunas[saunas.length-1].context})` : "none";
     const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
     const wkRides = rides.filter((r) => r.date >= weekAgo);
-    const rideSummary = wkRides.length ? `${wkRides.length} this week, ${wkRides.reduce((s,r)=>s+r.km,0)}km (${wkRides.filter(r=>r.effort==="Hard").length} hard)` : "none this week";
+    const wkMon = rides.filter((r) => r.date >= mondayKey());
+    const rideSummary = wkMon.length ? `${weekAerobic(rides)} easy-aerobic min since Monday over ${wkMon.length} sessions (${wkMon.filter(r=>r.kind==="hill").length} hill climbs, ${wkMon.filter(r=>r.kind==="walk").length} walks, ${wkMon.filter(r=>r.effort==="Hard").length} hard)` : "none since Monday";
     const wkBonus = (bonusLog || []).filter((b) => b.date >= weekAgo);
     const bonusSummary = wkBonus.length ? `${wkBonus.filter(b=>b.kind==="skill").length} skill + ${wkBonus.filter(b=>b.kind==="mobility").length} mobility this week` : "none this week";
     const system = `You are a concise S&C coach in a training app.
 PROGRAM: 24-week concurrent, CYCLE 2, 8-week blocks — Strength(w1-8), Endurance(w9-16), Flexibility(w17-24). One priority/block, others maintain (~1/3 vol).
-CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Endurance in this block is a floor: 2 easy rides/week (commutes count), plus an optional short interval touch (4×1min hard/2min easy) on Saturday of weeks 4, 6 and 8 to prime the Endurance block — skip it if sleep/stress is poor. No other hard rides. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, 32km bike commute; plans rings+kettlebell.
+CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Endurance in this block is a floor: 60-90 easy aerobic min/week. Main vehicle is the evening bike climb home (2.3km, +139m, ~6%, ~15min) — keep it easy (lowest gear, nose breathing). Uphill walk (~38min) is the winter/ice fallback. Main bike under repair; morning commute is dark, so no long commutes for now. Weeks 4, 6, 8: ride the hill once as 4×(1min hard/2min easy), ideally Tue or Fri, not the evening before Wed legs; skip if sleep/stress is poor. No other hard rides. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, a second bike for short rides; plans rings+kettlebell.
 RECOVERY/SAUNA: best on rest/cardio/short days; not right after heavy strength (blunts hypertrophy signal); before stretching deepens range. ~48h between HARD same-tissue sessions; sub-maximal skill/mobility can be daily.
 STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume ~40-50%, reps in reserve)" : ramp ? `, ${ramp.label}: ${ramp.text}` : ""}. Logs: ${logSummary}. Sauna: ${saunaSummary}. Bike: ${rideSummary}. Bonus: ${bonusSummary}.
 BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
@@ -1609,8 +1706,8 @@ const S = {
   deloadLabel: { fontWeight: 600, fontSize: 13.5 },
   toggle: { width: 44, height: 24, borderRadius: 14, border: "none", cursor: "pointer", position: "relative", padding: 0, transition: "background .2s" },
   toggleKnob: { display: "block", width: 20, height: 20, borderRadius: "50%", background: "#fff", position: "absolute", top: 2, left: 2, transition: "transform .2s", boxShadow: "0 1px 2px #00000033" },
-  nav: { display: "flex", gap: 6, marginBottom: 18 },
-  navBtn: { flex: 1, padding: "9px 4px", borderRadius: 10, border: "1px solid #e2dcd0", background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "#6b665d", transition: "all .15s" },
+  nav: { display: "flex", gap: 6, marginBottom: 18, overflowX: "auto", paddingBottom: 2 },
+  navBtn: { flex: "1 0 auto", padding: "9px 8px", borderRadius: 10, border: "1px solid #e2dcd0", background: "#fff", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "#6b665d", transition: "all .15s" },
   body: { display: "flex", flexDirection: "column", gap: 14 },
   card: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 1px 3px #0000000d, 0 8px 24px #0000000a" },
   bonusTag: { fontSize: 11, fontWeight: 700, fontFamily: FONT_BODY, padding: "2px 8px", borderRadius: 999, border: "1px solid", textTransform: "uppercase", letterSpacing: 0.4 },
@@ -1661,8 +1758,10 @@ const S = {
   swapHint: { fontSize: 12.5, lineHeight: 1.45, padding: "9px 12px", background: "#fff", border: "1px dashed #cfc8b8", borderRadius: 10, color: "#5a554c" },
   swapBtn: { fontSize: 12, fontWeight: 700, fontFamily: FONT_BODY, height: 30, padding: "0 12px", borderRadius: 8, border: "1px solid", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 },
   formRow: { display: "flex", gap: 8 },
+  quickMinBox: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 58, background: "#faf7f0", border: "1px solid #e2dcd0", borderRadius: 9, padding: 4 },
+  quickMinInput: { width: 44, border: "none", background: "transparent", textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: "#2a261f" },
   select: { flex: 2, padding: "10px 12px", borderRadius: 9, border: "1px solid #e2dcd0", fontFamily: FONT_BODY, fontSize: 14, background: "#fff" },
-  input: { flex: 1, padding: "10px 12px", borderRadius: 9, border: "1px solid #e2dcd0", fontFamily: FONT_BODY, fontSize: 14 },
+  input: { flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 9, border: "1px solid #e2dcd0", fontFamily: FONT_BODY, fontSize: 14 },
   primaryBtn: { color: "#fff", border: "none", borderRadius: 9, padding: "11px 18px", fontFamily: FONT_BODY, fontWeight: 600, fontSize: 14, cursor: "pointer" },
   logRow: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f0ece2", fontSize: 13.5, flexWrap: "wrap" },
   logLift: { color: "#6b665d", flex: 1 },
