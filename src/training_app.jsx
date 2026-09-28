@@ -153,8 +153,7 @@ const HANDSTAND_NOTE = "Wrist prep every time — it's your injury insurance bef
 
 // ============================================================================
 // BONUS LIBRARY — short, optional, skill + mobility ONLY (no extra strength,
-// by design: strength is maintained in this block and extra load competes with
-// the priority quality). These are the two things the plan under-serves, so
+// by design: extra load competes with the block's main sessions for recovery). These are the two things the plan under-serves, so
 // spare-time energy points here. Logged separately as "bonus" — never distorts
 // planned-session completion. Each reuses the RoutineGroup shape + timers.
 // ============================================================================
@@ -268,7 +267,7 @@ const BONUS_SESSIONS = [
     ],
   },
 ];
-const BONUS_NOTE = "Bonuses are optional and complementary — skill and mobility only, on purpose. They're logged separately so they never distort your planned-session tracking. The rule of thumb: if you have spare energy, spend it here (the things the plan under-serves), not on extra strength that competes with this block's priority.";
+const BONUS_NOTE = "Bonuses are optional and complementary — skill and mobility only, on purpose. They're logged separately so they never distort your planned-session tracking. The rule of thumb: if you have spare energy, spend it here (the things the plan under-serves), not on extra strength volume — even in the Strength block, recovery is the limiter, not the number of sets.";
 
 // ============================================================================
 // PROGRAM DEFINITION — 3 blocks x 8 weeks
@@ -276,32 +275,17 @@ const BONUS_NOTE = "Bonuses are optional and complementary — skill and mobilit
 // ============================================================================
 const BLOCKS = [
   {
-    id: "endurance", name: "Endurance", weeks: [1, 8], accent: "#d9543f",
-    tag: "Detrained quality = steepest gains. Lead here for fast momentum.",
-    days: {
-      1: { type: "main", title: "Intervals", body: "10 min warm-up → 6–8 × (1 min hard / 90 sec easy) → 5 min cool-down. Add one interval/week (cap 10).", sauna: "good",
-        exercises: [
-          { name: "Warm-up", dose: "10 min easy", seconds: 600, cue: "Build gradually — last couple of minutes near interval pace to prime the legs and lungs." },
-          { name: "Hard / easy intervals", dose: "6–8 rounds", cue: "1 min hard (hard but repeatable), 90 sec easy spin/jog. Add one round per week, cap at 10.", interval: { work: 60, rest: 90, rounds: 7, workLabel: "HARD", restLabel: "easy" } },
-          { name: "Cool-down", dose: "5 min easy", seconds: 300, cue: "Let the heart rate drift down. Don't skip — it's where adaptation settles." },
-        ] },
-      2: { type: "short", title: "Skill — handstand + wrists", body: "Handstand balance practice + wrist/forearm prep. Low fatigue, sub-maximal.", sauna: "ideal", routine: HANDSTAND_ROUTINE },
-      3: { type: "main", title: "Strength maintenance", body: "3 supersets: pull-ups ×5 + HSPU ×5 · pistol prog ×5/leg + push-ups ×12 · hollow + arch holds. ~25 min.", sauna: "gap",
-        exercises: [
-          { name: "Pull-ups + HSPU", dose: "3 × (5 + 5)", cue: "Superset, minimal rest between the pair. Stop 1–2 reps shy of failure — this is maintenance, not a grind." },
-          { name: "Pistol progression + push-ups", dose: "3 × (5/leg + 12)", cue: "Pistols to your current depth (box/assisted is fine), then push-ups. Superset." },
-          { name: "Hollow hold", dose: "3 × 25 sec", seconds: 25, cue: "Low back glued to floor. The timer keeps you honest when it starts to shake." },
-          { name: "Arch (superman) hold", dose: "3 × 20 sec", seconds: 20, cue: "Balances the hollow — posterior chain. Squeeze glutes, lift chest and thighs." },
-        ] },
-      4: { type: "short", title: "Mobility — splits/hips", body: "Splits + hip work + easy skill. Best in evening (warmer). Sauna BEFORE stretch deepens range.", sauna: "ideal", routine: MOBILITY_ROUTINE },
-      5: { type: "main", title: "Bike base (commute)", body: "32 km easy round-trip ~1×/week. Replaces long run — same job, low impact. Not the day after intervals.", sauna: "good" },
-      6: { type: "open", title: "Open / hike", body: "Rest or an easy hike/run — bonus aerobic base.", sauna: "best" },
-      0: { type: "open", title: "Open / rest", body: "Full rest, or light movement.", sauna: "best" },
+    id: "strength", name: "Strength", weeks: [1, 8], accent: "#2e6e8e",
+    tag: "Rebuild first, then overload. Weeks 1–2 are re-entry after the break; real progression starts week 3. Heavy legs are the gap bodyweight can't fill.",
+    // Re-entry ramp after a ~3-month layoff. Keyed by week-within-block.
+    // Why: muscle memory brings strength back fast, but tendons/connective tissue
+    // re-adapt slower than muscle — and life stress draws on the same recovery budget.
+    ramp: {
+      1: { label: "RE-ENTRY W1", text: "Do ~half the listed sets. RPE 6 — stop with 3–4 reps in reserve. Bodyweight only on 'weighted' moves. Don't test old numbers.",
+           short: "Leave the session wanting more — the goal this week is just to show up and move well." },
+      2: { label: "RE-ENTRY W2", text: "Do ~¾ of the listed sets. RPE 7 — 2–3 reps in reserve. Still no added load. Note which moves feel back and which don't.",
+           short: "Closer to normal, still no grinding. Full sets and load arrive in week 3." },
     },
-  },
-  {
-    id: "strength", name: "Strength", weeks: [9, 16], accent: "#2e6e8e",
-    tag: "Progressive overload on movements you own + the gap bodyweight can't fill: heavy legs.",
     days: {
       1: { type: "main", title: "Upper push + core", body: "HSPU progression 5×4–6 · dips/weighted dips 4×6–8 · planche-lean prog · hollow body.", sauna: "avoid",
         exercises: [
@@ -325,8 +309,32 @@ const BLOCKS = [
           { name: "Front-lever progression", dose: "4 × 10 sec", seconds: 10, cue: "Tuck → advanced tuck → straddle as you progress. The timer caps each clean hold." },
           { name: "L-sit hold", dose: "3 × 15 sec", seconds: 15, cue: "On the bar, parallettes, or floor. Legs straight, push the floor away. Tuck to scale." },
         ] },
-      6: { type: "open", title: "Open / hike", body: "Rest or easy bike/hike — maintains endurance, low impact.", sauna: "best" },
-      0: { type: "open", title: "Open / rest", body: "Full rest. Easy bike commute alone maintains your aerobic base.", sauna: "best" },
+      6: { type: "open", title: "Open / hike or easy ride", body: "Rest, or an easy bike/hike — your aerobic floor. Keep it conversational: in this block endurance only needs to not disappear, and hard rides eat the recovery the lifting needs.", sauna: "best" },
+      0: { type: "open", title: "Open / rest", body: "Full rest. Easy bike commutes alone keep an aerobic floor under you.", sauna: "best" },
+    },
+  },
+  {
+    id: "endurance", name: "Endurance", weeks: [9, 16], accent: "#d9543f",
+    tag: "Built on the strength base. VO2max is the weak link — intervals are the protected session; strength drops to maintenance.",
+    days: {
+      1: { type: "main", title: "Intervals", body: "10 min warm-up → 6–8 × (1 min hard / 90 sec easy) → 5 min cool-down. Add one interval/week (cap 10).", sauna: "good",
+        exercises: [
+          { name: "Warm-up", dose: "10 min easy", seconds: 600, cue: "Build gradually — last couple of minutes near interval pace to prime the legs and lungs." },
+          { name: "Hard / easy intervals", dose: "6–8 rounds", cue: "1 min hard (hard but repeatable), 90 sec easy spin/jog. Add one round per week, cap at 10.", interval: { work: 60, rest: 90, rounds: 7, workLabel: "HARD", restLabel: "easy" } },
+          { name: "Cool-down", dose: "5 min easy", seconds: 300, cue: "Let the heart rate drift down. Don't skip — it's where adaptation settles." },
+        ] },
+      2: { type: "short", title: "Skill — handstand + wrists", body: "Handstand balance practice + wrist/forearm prep. Low fatigue, sub-maximal.", sauna: "ideal", routine: HANDSTAND_ROUTINE },
+      3: { type: "main", title: "Strength maintenance", body: "3 supersets: pull-ups ×5 + HSPU ×5 · pistol prog ×5/leg + push-ups ×12 · hollow + arch holds. ~25 min.", sauna: "gap",
+        exercises: [
+          { name: "Pull-ups + HSPU", dose: "3 × (5 + 5)", cue: "Superset, minimal rest between the pair. Stop 1–2 reps shy of failure — this is maintenance, not a grind." },
+          { name: "Pistol progression + push-ups", dose: "3 × (5/leg + 12)", cue: "Pistols to your current depth (box/assisted is fine), then push-ups. Superset." },
+          { name: "Hollow hold", dose: "3 × 25 sec", seconds: 25, cue: "Low back glued to floor. The timer keeps you honest when it starts to shake." },
+          { name: "Arch (superman) hold", dose: "3 × 20 sec", seconds: 20, cue: "Balances the hollow — posterior chain. Squeeze glutes, lift chest and thighs." },
+        ] },
+      4: { type: "short", title: "Mobility — splits/hips", body: "Splits + hip work + easy skill. Best in evening (warmer). Sauna BEFORE stretch deepens range.", sauna: "ideal", routine: MOBILITY_ROUTINE },
+      5: { type: "main", title: "Bike base (commute)", body: "32 km easy round-trip ~1×/week. Replaces long run — same job, low impact. Not the day after intervals.", sauna: "good" },
+      6: { type: "open", title: "Open / hike", body: "Rest or an easy hike/run — bonus aerobic base.", sauna: "best" },
+      0: { type: "open", title: "Open / rest", body: "Full rest, or light movement.", sauna: "best" },
     },
   },
   {
@@ -379,6 +387,26 @@ function todayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// CYCLE 2 (Sep 2026): restarted after a ~3-month break, Strength-first order.
+// Bumping this archives the previous cycle's week/done/deload/swap state on load
+// (date-based logs — progress, sauna, bike, bonus — are kept untouched).
+const CYCLE_VERSION = 2;
+
+// ramp: re-entry after a layoff — like a deload, but scaling UP toward full volume
+function rampFor(week) {
+  const b = blockForWeek(week);
+  return b.ramp ? b.ramp[week - b.weeks[0] + 1] || null : null;
+}
+function applyRamp(session, r) {
+  if (!r || session.type === "open") return session;
+  if (session.type === "short") return { ...session, body: session.body + ` (${r.short})` };
+  return { ...session, title: session.title + " — re-entry", ramp: r, body: `${r.label}: ${r.text} ` + session.body };
+}
+// one place that decides what a calendar day's session looks like this week
+function shapeSession(s, isDeload, ramp) {
+  return isDeload ? applyDeload(s) : applyRamp(s, ramp);
+}
+
 // deload: lighten a main session's prescription, leave skill/open mostly alone
 function applyDeload(session) {
   if (session.type === "open") return session;
@@ -394,7 +422,8 @@ function applyDeload(session) {
   };
 }
 
-const LIFTS = ["Pull-ups (reps)", "HSPU (reps)", "Push-ups (reps)", "Run interval (count)", "Squat load (kg)", "Split depth (cm to floor)"];
+// Existing names kept verbatim so older log entries still chart under the same lift.
+const LIFTS = ["Pull-ups (reps)", "HSPU (reps)", "Push-ups (reps)", "Dips (reps)", "Weighted pull-up (+kg)", "Squat load (kg)", "RDL load (kg)", "Run interval (count)", "Split depth (cm to floor)"];
 
 // ============================================================================
 // MAIN
@@ -419,6 +448,23 @@ export default function TrainingApp() {
         try { const v = await Store.get(k); return v != null ? JSON.parse(v) : def; }
         catch (e) { return def; }
       };
+      // ---- cycle migration: archive old week-structured state, restart at week 1 ----
+      const cycle = await safeGet("cycleVersion", null);
+      if (cycle !== CYCLE_VERSION) {
+        const old = {
+          currentWeek: await safeGet("currentWeek", null),
+          done: await safeGet("done", {}),
+          deloads: await safeGet("deloads", {}),
+          swaps: await safeGet("swaps", {}),
+        };
+        const hadHistory = old.currentWeek != null || Object.keys(old.done).length > 0;
+        const existingArchive = await safeGet("archiveCycle1", null);
+        if (hadHistory && !existingArchive) {
+          await save("archiveCycle1", { program: "Endurance → Strength → Flexibility", archivedAt: new Date().toISOString(), ...old });
+        }
+        await save("currentWeek", 1); await save("done", {}); await save("deloads", {}); await save("swaps", {});
+        await save("cycleVersion", CYCLE_VERSION);
+      }
       setWeek(await safeGet("currentWeek", 1));
       setLogs(await safeGet("logs", []));
       setSaunas(await safeGet("saunas", []));
@@ -448,6 +494,7 @@ export default function TrainingApp() {
   const block = blockForWeek(week);
   const accent = block.accent;
   const isDeload = !!deloads[week];
+  const ramp = rampFor(week);
 
   const toggleDeload = () => persistDeloads({ ...deloads, [week]: !isDeload });
 
@@ -483,7 +530,7 @@ export default function TrainingApp() {
   })();
 
   const exportData = () => {
-    const payload = { version: 1, exportedAt: new Date().toISOString(), currentWeek: week, logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel };
+    const payload = { version: 1, cycleVersion: CYCLE_VERSION, exportedAt: new Date().toISOString(), currentWeek: week, logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -500,6 +547,10 @@ export default function TrainingApp() {
     reader.onload = () => {
       try {
         const d = JSON.parse(reader.result);
+        // Exports from the old cycle carry week numbers from a different block order —
+        // import their dated logs, but don't let their week/done state overwrite this cycle.
+        const sameCycle = d.cycleVersion === CYCLE_VERSION;
+        if (sameCycle) {
         if (d.currentWeek != null) persistWeek(d.currentWeek);
         if (Array.isArray(d.logs)) persistLogs(d.logs);
         if (Array.isArray(d.saunas)) persistSaunas(d.saunas);
@@ -507,10 +558,11 @@ export default function TrainingApp() {
         if (d.done && typeof d.done === "object") persistDone(d.done);
         if (d.deloads && typeof d.deloads === "object") persistDeloads(d.deloads);
         if (d.swaps && typeof d.swaps === "object") persistSwaps(d.swaps);
+        }
         if (Array.isArray(d.bonusLog)) persistBonusLog(d.bonusLog);
         if (typeof d.hsTier === "number") persistHsTier(d.hsTier);
         if (typeof d.hsBonusLevel === "number") persistHsBonusLevel(d.hsBonusLevel);
-        alert("Data imported successfully.");
+        alert(sameCycle ? "Data imported successfully." : "Imported logs from an earlier cycle. Week progress was left as-is (different block order).");
       } catch (err) {
         alert("Couldn't read that file — make sure it's a training-data export.");
       }
@@ -525,11 +577,12 @@ export default function TrainingApp() {
 
       <header style={{ ...S.header, borderColor: accent }}>
         <div>
-          <div style={S.kicker}>Concurrent Training · 24-week cycle</div>
+          <div style={S.kicker}>Concurrent Training · Cycle 2 · Strength first</div>
           <h1 style={S.h1}>
             Week {week} <span style={{ color: accent }}>·</span>{" "}
             <span style={{ color: accent }}>{block.name} block</span>
             {isDeload && <span style={S.deloadBadge}>DELOAD</span>}
+            {!isDeload && ramp && <span style={{ ...S.deloadBadge, background: accent }}>{ramp.label}</span>}
           </h1>
         </div>
         <WeekStepper week={week} setWeek={persistWeek} accent={accent} />
@@ -556,13 +609,13 @@ export default function TrainingApp() {
       </nav>
 
       {!loaded ? <div style={S.muted}>Loading…</div>
-        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
-        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
+        : view === "today" ? <TodayView week={week} accent={accent} isDeload={isDeload} ramp={ramp} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} />
+        : view === "week" ? <WeekView week={week} accent={accent} isDeload={isDeload} ramp={ramp} done={done} setDone={persistDone} hsTier={hsTier} setHsTier={persistHsTier} srcForDay={srcForDay} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps} hasSwaps={hasSwaps} hardDayWarnings={hardDayWarnings} block={block} />
         : view === "progress" ? <ProgressView logs={logs} setLogs={persistLogs} accent={accent} />
         : view === "bonus" ? <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={accent} hsLevel={hsBonusLevel} setHsLevel={persistHsBonusLevel} />
         : view === "bike" ? <RideView rides={rides} setRides={persistRides} accent={accent} />
         : view === "sauna" ? <SaunaView saunas={saunas} setSaunas={persistSaunas} accent={accent} />
-        : <CoachView week={week} block={block} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog} isDeload={isDeload} accent={accent} />}
+        : <CoachView week={week} block={block} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog} isDeload={isDeload} ramp={ramp} accent={accent} />}
 
       <div style={S.dataRow}>
         <button onClick={exportData} style={S.dataBtn}>↓ Export data</button>
@@ -608,11 +661,11 @@ function BlockBar({ week }) {
   );
 }
 
-function TodayView({ week, accent, isDeload, done, setDone, hsTier, setHsTier, srcForDay }) {
+function TodayView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTier, srcForDay }) {
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
-  const get = (k) => { const s = block.days[srcForDay(k)]; return isDeload ? applyDeload(s) : s; };
+  const get = (k) => shapeSession(block.days[srcForDay(k)], isDeload, ramp);
   const swapped = (k) => srcForDay(k) !== k;
   return (
     <div style={S.body}>
@@ -621,13 +674,18 @@ function TodayView({ week, accent, isDeload, done, setDone, hsTier, setHsTier, s
       <div style={{ ...S.tagBox, borderColor: accent }}>
         <strong style={{ color: accent }}>{block.name} block.</strong> {block.tag}
       </div>
+      {ramp && !isDeload && (
+        <div style={{ ...S.tagBox, borderColor: accent }}>
+          <strong style={{ color: accent }}>Why ease in?</strong> Strength returns fast after a break (the nervous-system skill is largely retained), but tendons re-adapt more slowly than muscle — and life stress draws on the same recovery budget as training. Two easy weeks cost almost nothing and buy the next six.
+        </div>
+      )}
     </div>
   );
 }
 
-function WeekView({ week, accent, isDeload, done, setDone, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
+function WeekView({ week, accent, isDeload, ramp, done, setDone, hsTier, setHsTier, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, block }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
-  const get = (k) => { const s = block.days[srcForDay(k)]; return isDeload ? applyDeload(s) : s; };
+  const get = (k) => shapeSession(block.days[srcForDay(k)], isDeload, ramp);
   const completed = order.filter((k) => done[`W${week}-${k}`]).length;
   const [swapMode, setSwapMode] = useState(null); // calendar dayKey awaiting a target, or null
 
@@ -891,7 +949,7 @@ function SessionCard({ label, dayKey, week, session, accent, big, compact, done,
         </div>
       )}
       {showDetail && session.exercises && (
-        <ExerciseList exercises={session.exercises} accent={accent} deload={session.deload} defaultOpen={compact && expanded} />
+        <ExerciseList exercises={session.exercises} accent={accent} deload={session.deload} ramp={session.ramp} defaultOpen={compact && expanded} />
       )}
       {showDetail && session.routine && (
         <div style={{ marginTop: 12 }}>
@@ -910,7 +968,7 @@ function SessionCard({ label, dayKey, week, session, accent, big, compact, done,
 }
 
 // Renders a main session's structured exercises with holds (DrillTimer) and intervals (IntervalTimer).
-function ExerciseList({ exercises, accent, deload, defaultOpen }) {
+function ExerciseList({ exercises, accent, deload, ramp, defaultOpen }) {
   const [show, setShow] = useState(!!defaultOpen);
   const timed = exercises.filter((e) => e.seconds || e.interval).length;
   return (
@@ -924,6 +982,11 @@ function ExerciseList({ exercises, accent, deload, defaultOpen }) {
           {deload && (
             <div style={S.tierBlurb}>
               Deload week: cut sets ~40–50% and stop well short of failure. Holds can stay full length — it's the volume you reduce, not the quality of each rep.
+            </div>
+          )}
+          {ramp && !deload && (
+            <div style={S.tierBlurb}>
+              {ramp.label}: {ramp.text} Listed doses are the full-week targets you're building back toward.
             </div>
           )}
           {exercises.map((it, ii) => (
@@ -1380,7 +1443,7 @@ function SaunaView({ saunas, setSaunas, accent }) {
   );
 }
 
-function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, accent }) {
+function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp, accent }) {
   // Day-aware bonus suggestion: pick the most fitting side-quest for today's context.
   const bonusSuggestion = (() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -1407,7 +1470,7 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, accen
   })();
 
   const [messages, setMessages] = useState([
-    { role: "assistant", text: `Hi! You're in week ${week} (${block.name} block${isDeload ? ", DELOAD" : ""}). ${bonusSuggestion} Ask me to adjust today's session, plan around soreness, sauna timing, or anything else.` },
+    { role: "assistant", text: `Hi! You're in week ${week} (${block.name} block${isDeload ? ", DELOAD" : ramp ? `, ${ramp.label.toLowerCase()}` : ""}). ${bonusSuggestion} Ask me to adjust today's session, plan around soreness, sauna timing, or anything else.` },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1426,10 +1489,11 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, accen
     const wkBonus = (bonusLog || []).filter((b) => b.date >= weekAgo);
     const bonusSummary = wkBonus.length ? `${wkBonus.filter(b=>b.kind==="skill").length} skill + ${wkBonus.filter(b=>b.kind==="mobility").length} mobility this week` : "none this week";
     const system = `You are a concise S&C coach in a training app.
-PROGRAM: 24-week concurrent, 8-week blocks — Endurance(w1-8), Strength(w9-16), Flexibility(w17-24). One priority/block, others maintain (~1/3 vol). Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, 32km bike commute; plans rings+kettlebell.
+PROGRAM: 24-week concurrent, CYCLE 2, 8-week blocks — Strength(w1-8), Endurance(w9-16), Flexibility(w17-24). One priority/block, others maintain (~1/3 vol).
+CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Keep easy bike commutes as an aerobic floor; no hard rides needed this block. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, 32km bike commute; plans rings+kettlebell.
 RECOVERY/SAUNA: best on rest/cardio/short days; not right after heavy strength (blunts hypertrophy signal); before stretching deepens range. ~48h between HARD same-tissue sessions; sub-maximal skill/mobility can be daily.
-STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume ~40-50%, reps in reserve)" : ""}. Logs: ${logSummary}. Sauna: ${saunaSummary}. Bike: ${rideSummary}. Bonus: ${bonusSummary}.
-BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't push extra strength load in the Endurance block. Today's fitting bonus: ${bonusSuggestion}
+STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume ~40-50%, reps in reserve)" : ramp ? `, ${ramp.label}: ${ramp.text}` : ""}. Logs: ${logSummary}. Sauna: ${saunaSummary}. Bike: ${rideSummary}. Bonus: ${bonusSummary}.
+BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
 STYLE: practical, <120 words unless asked. Concrete adjustments. Flag recovery conflicts. Don't invent data. Not medical advice; caution with pain.`;
     try {
       const res = await fetch("/api/chat", {
