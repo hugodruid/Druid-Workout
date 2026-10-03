@@ -268,6 +268,26 @@ const BONUS_SESSIONS = [
     ],
   },
 ];
+// Weekly bonus targets — what makes the bonuses visible in the Week tab.
+// Handstand frequency + trunk work are what the skill goals (front lever, L-sit,
+// HSPU) actually run on, so they get a light weekly target. Not a quota to grind:
+// a nudge so they don't get forgotten.
+const BONUS_TARGETS = [
+  { key: "hs", label: "Handstand", ids: ["hs-touch", "hs-skill-15"], target: 3, color: "#2e6e8e" },
+  { key: "core", label: "Core", ids: ["back-care"], target: 2, color: "#6a8d3f" },
+];
+// Which bonus fits which day, by the planned session's type. Main days get only the
+// 5-min touch-up (do it FRESH, before the session or early in the day); lighter days
+// get the fuller doses.
+function bonusFor(session) {
+  const t = session?.type, title = (session?.title || "").toLowerCase();
+  if (t === "main") return ["hs-touch"];
+  if (t === "short" && title.includes("handstand")) return ["back-care"];
+  if (t === "short") return ["hs-skill-15", "back-care"];
+  return ["hs-skill-15", "back-care"];                 // open / rest days
+}
+const bonusById = (id) => BONUS_SESSIONS.find((b) => b.id === id);
+
 const BONUS_NOTE = "Bonuses are optional and complementary — skill and mobility only, on purpose. They're logged separately so they never distort your planned-session tracking. The rule of thumb: if you have spare energy, spend it here (the things the plan under-serves), not on extra strength volume — even in the Strength block, recovery is the limiter, not the number of sets.";
 
 // ============================================================================
@@ -615,6 +635,7 @@ export default function TrainingApp() {
   const accent = (view === "week" ? block : curBlock).accent;
   const isDeloadW = (w) => !!deloads[w];
   const curRamp = rampFor(currentWeek);
+  const openBonus = () => { setLogSub("bonus"); setView("log"); window.scrollTo?.(0, 0); };
   const todayLevel = readinessLevel(readiness[todayKey()]);
 
   // ---- per-week session swaps (for the week being viewed) ----
@@ -715,13 +736,16 @@ export default function TrainingApp() {
           {/* Today + Week stay mounted so a running timer survives a tab switch */}
           <div style={{ display: view === "today" ? "block" : "none" }}>
             <TodayView week={currentWeek} accent={curBlock.accent} isDeload={isDeloadW(currentWeek)} ramp={curRamp} rides={rides}
-              srcForDay={srcFor(currentWeek)} readiness={readiness} setReadiness={persistReadiness} cardProps={cardProps} />
+              srcForDay={srcFor(currentWeek)} readiness={readiness} setReadiness={persistReadiness} cardProps={cardProps}
+              bonusLog={bonusLog} setBonusLog={persistBonusLog} hsLevel={hsBonusLevel} openBonus={openBonus} />
           </div>
           <div style={{ display: view === "week" ? "block" : "none" }}>
             <WeekView week={week} currentWeek={currentWeek} setViewWeek={setViewWeek} accent={block.accent} block={block}
               isDeload={isDeloadW(week)} toggleDeload={() => persistDeloads({ ...deloads, [week]: !isDeloadW(week) })}
               ramp={rampFor(week)} rides={rides} srcForDay={srcFor(week)} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps}
-              hasSwaps={Object.keys(swapsFor(week)).length > 0} hardDayWarnings={hardDayWarnings} cardProps={cardProps} />
+              hasSwaps={Object.keys(swapsFor(week)).length > 0} hardDayWarnings={hardDayWarnings} cardProps={cardProps}
+              weekMonday={addDays(mondayOf(startDate), 7 * (week - 1))} bonusLog={bonusLog} setBonusLog={persistBonusLog}
+              hsLevel={hsBonusLevel} openBonus={openBonus} />
           </div>
           {view === "log" && (
             <div style={S.body}>
@@ -915,7 +939,7 @@ function ReadinessCheck({ value, onChange, accent }) {
   );
 }
 
-function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, setReadiness, cardProps }) {
+function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, setReadiness, cardProps, bonusLog, setBonusLog, hsLevel, openBonus }) {
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
@@ -926,12 +950,88 @@ function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, 
     <div style={S.body}>
       <ReadinessCheck value={readiness[tk]} onChange={(v) => setReadiness({ ...readiness, [tk]: v })} accent={accent} />
       <SessionCard label={swapped(td) ? "TODAY · swapped" : "TODAY"} dayKey={td} week={week} session={get(td)} accent={accent} big {...cardProps} />
+      <BonusStrip date={tk} session={get(td)} bonusLog={bonusLog} setBonusLog={setBonusLog} hsLevel={hsLevel} accent={accent} openBonus={openBonus} />
       <FloorCard block={block} week={week} rides={rides} compact />
       <SessionCard label={swapped(tm) ? "TOMORROW · swapped" : "TOMORROW"} dayKey={tm} week={week} session={get(tm)} accent={accent} compact {...cardProps} />
       <div style={{ ...S.tagBox, borderColor: accent }}>
         <strong style={{ color: accent }}>{block.name} block.</strong> {block.tag}
         {ramp && !isDeload && <> <strong style={{ color: accent }}>Why ease in?</strong> Strength returns fast after a break, but tendons re-adapt more slowly than muscle — and life stress draws on the same recovery budget. Two easy weeks buy the next six.</>}
       </div>
+    </div>
+  );
+}
+
+// Weekly bonus summary: progress toward the light targets + a Mon–Sun dot row.
+function BonusWeekCard({ weekMonday, bonusLog, accent, openBonus }) {
+  const days = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(weekMonday, i));
+  const inWeek = (bonusLog || []).filter((b) => b.date >= days[0] && b.date <= days[6]);
+  const today = todayKey();
+  return (
+    <div style={{ ...S.card, padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15 }}>Bonus this week</div>
+        <button onClick={openBonus} style={{ ...S.timerReset, color: accent }}>all bonuses ›</button>
+      </div>
+      {BONUS_TARGETS.map((t) => {
+        const n = inWeek.filter((b) => t.ids.includes(b.id)).length;
+        return (
+          <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ width: 78, fontSize: 12.5, fontWeight: 700, color: t.color }}>{t.label}</span>
+            <div style={{ flex: 1, height: 7, background: "#efe9dd", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ width: `${Math.min(100, (n / t.target) * 100)}%`, height: "100%", background: t.color, borderRadius: 4 }} />
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: n >= t.target ? t.color : "#9a958c", minWidth: 34, textAlign: "right" }}>{n}/{t.target}{n >= t.target ? " ✓" : ""}</span>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+        {days.map((d, i) => {
+          const n = inWeek.filter((b) => b.date === d).length;
+          return (
+            <div key={d} style={{ textAlign: "center", flex: 1 }}>
+              <div style={{ fontSize: 10.5, color: d === today ? accent : "#9a958c", fontWeight: d === today ? 800 : 600 }}>{"MTWTFSS"[i]}</div>
+              <div style={{ width: 18, height: 18, margin: "3px auto 0", borderRadius: 999, fontSize: 10, fontWeight: 800, lineHeight: "18px",
+                color: "#fff", background: n ? accent : "transparent", border: n ? "none" : `1.5px ${d > today ? "dashed" : "solid"} #ddd6c8` }}>{n > 1 ? n : ""}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Per-day bonus chips under a session card. Tap to log for that date (today or
+// past); tap a ticked chip to remove that entry. Future days show the suggestion only.
+function BonusStrip({ date, session, bonusLog, setBonusLog, hsLevel, accent, openBonus }) {
+  const today = todayKey();
+  const future = date > today;
+  const ids = bonusFor(session);
+  const log = bonusLog || [];
+  const extra = log.filter((b) => b.date === date && !ids.includes(b.id));   // other bonuses done that day
+  const toggle = (id) => {
+    if (future) { openBonus(); return; }
+    const idx = log.map((b, i) => (b.date === date && b.id === id ? i : -1)).filter((i) => i >= 0).pop();
+    if (idx !== undefined) { setBonusLog(log.filter((_, i) => i !== idx)); return; }
+    const s = bonusById(id);
+    setBonusLog([...log, { date, id: s.id, title: s.title, kind: s.kind, minutes: s.minutes, ...(s.levelled ? { level: (hsLevel ?? 0) + 1 } : {}) }]);
+  };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: "7px 4px 2px" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#9a958c", letterSpacing: 0.4 }}>＋ BONUS</span>
+      {ids.map((id) => {
+        const s = bonusById(id); if (!s) return null;
+        const done = log.some((b) => b.date === date && b.id === id);
+        const c = s.kind === "skill" ? "#2e6e8e" : "#6a8d3f";
+        return (
+          <button key={id} onClick={() => toggle(id)} title={future ? "Open the routine" : done ? "Tap to undo" : "Tap to log as done"}
+            style={{ fontSize: 11.5, fontWeight: 700, fontFamily: FONT_BODY, padding: "3px 9px", borderRadius: 999, cursor: "pointer",
+              border: `1px ${future ? "dashed" : "solid"} ${c}66`, background: done ? c : c + "12", color: done ? "#fff" : c }}>
+            {done ? "✓ " : ""}{s.title.replace(" (bike support)", "")} · {s.minutes}′
+          </button>
+        );
+      })}
+      {extra.map((b, i) => <span key={i} style={{ fontSize: 11, color: accent, fontWeight: 700 }}>✓ {b.title}</span>)}
+      <button onClick={openBonus} style={{ ...S.timerReset, color: accent, marginLeft: "auto" }}>routine ›</button>
     </div>
   );
 }
@@ -946,8 +1046,9 @@ function slotStatus(id, session, done, sets, level) {
   return { isDone, auto, logged, total: loggable.length };
 }
 
-function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, toggleDeload, ramp, rides, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, cardProps }) {
+function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, toggleDeload, ramp, rides, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, cardProps, weekMonday, bonusLog, setBonusLog, hsLevel, openBonus }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
+  const dateFor = (k) => addDays(weekMonday, (k + 6) % 7);
   const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
   const td = new Date().getDay();
   const levelFor = (k) => (week === currentWeek && k === td ? cardProps.todayLevel : "full");
@@ -983,6 +1084,7 @@ function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, tog
       </div>
 
       {week === currentWeek && <FloorCard block={block} week={week} rides={rides} compact />}
+      <BonusWeekCard weekMonday={weekMonday} bonusLog={bonusLog} accent={accent} openBonus={openBonus} />
 
       {hardDayWarnings.length > 0 && (
         <div style={S.warnBox}>
@@ -1018,6 +1120,7 @@ function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, tog
                   {isPicking ? "✕ cancel" : isTarget ? `⇄ swap with ${DAY_NAMES[swapMode]}` : "⇄"}
                 </button>
               } />
+            <BonusStrip date={dateFor(k)} session={get(k)} bonusLog={bonusLog} setBonusLog={setBonusLog} hsLevel={hsLevel} accent={accent} openBonus={openBonus} />
           </div>
         );
       })}
