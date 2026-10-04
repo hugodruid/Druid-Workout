@@ -205,13 +205,105 @@ const HS_BONUS_LEVELS = [
   },
 ];
 
+// Core & compression progression — the L-sit / front-lever engine. Three qualities
+// every level: COMPRESSION (hip flexors working at short range — the L-sit limiter),
+// ANTI-EXTENSION (the hollow line a front lever holds), SUPPORT (shoulder depression,
+// pushing the floor away). Gate = self-test, not sessions logged. Sub-maximal:
+// stop every set 1–2 reps / a few seconds short — this is a side-quest, not a 4th
+// strength day. Short (~8 min) and full (~15 min) variants share the level.
+const CORE_PREP = {
+  group: "Prep — 1 min",
+  items: [
+    { name: "Seated knee-to-chest lifts", dose: "10 reps", seconds: null, cue: "Sit tall, hands on the floor, lift both knees toward the chest. Wakes up the hip flexors at short range." },
+    { name: "Support shrugs", dose: "10 reps", seconds: null, cue: "Hands on chairs/parallettes/floor, arms straight: sink, then push the floor away. The L-sit lives in the 'pushed away' position." },
+  ],
+};
+const CORE_BONUS_LEVELS = [
+  {
+    name: "Foundation",
+    gate: "Advance when: hollow hold 30s with low back down · tuck support 3 × 10s · seated pike lifts 10 reps (hands beside knees, heels clear the floor).",
+    short: [
+      { name: "Hollow body hold", dose: "3 × 20 sec", seconds: 20, cue: "Low back glued down, ribs in. Bend knees / arms overhead less to scale. The front-lever line, on the floor." },
+      { name: "Tuck support hold", dose: "3 × 10 sec", seconds: 10, cue: "On chairs or parallettes: shoulders pushed down, knees to chest, feet just off. Floor version comes later." },
+      { name: "Seated pike lifts", dose: "2 × 8", seconds: null, cue: "Legs straight, hands beside the knees, lift heels and hold 1s. THIS is compression — the L-sit limiter." },
+    ],
+    full: [
+      { name: "Hollow body hold", dose: "3 × 25 sec", seconds: 25, cue: "Low back glued down, ribs in. Scale before the line breaks." },
+      { name: "Tuck support hold", dose: "4 × 10 sec", seconds: 10, cue: "Shoulders down and away from the ears. Push the floor." },
+      { name: "Seated pike lifts", dose: "3 × 8", seconds: null, cue: "Hands beside knees, lift both heels, 1s pause. Lean forward slightly, not back." },
+      { name: "Dead bug", dose: "2 × 8 / side", seconds: null, cue: "Slow, low back pressed down. Anti-extension control." },
+      { name: "Side plank", dose: "2 × 20 sec / side", seconds: 20, perSide: true, cue: "Stack hips, straight line. The lateral half of a strong trunk." },
+    ],
+  },
+  {
+    name: "One-leg L-sit",
+    gate: "Advance when: one-leg L-sit 10s/side · 15 clean hollow rocks · 10 hanging knee raises (knees above hips, no swing).",
+    short: [
+      { name: "Hollow rocks", dose: "3 × 12", seconds: null, cue: "Keep the exact hollow shape and rock from it. If the shape breaks, stop the set." },
+      { name: "One-leg L-sit (alternating)", dose: "3 × 6 sec / side", seconds: 6, perSide: true, cue: "One leg straight out, the other tucked. Hips forward of the hands, shoulders pushed down." },
+      { name: "Seated pike lifts — hands at knees", dose: "2 × 10", seconds: null, cue: "Hands further forward = harder. Squeeze the quads, point the toes." },
+    ],
+    full: [
+      { name: "Hollow rocks", dose: "3 × 15", seconds: null, cue: "Shape first, rocking second." },
+      { name: "One-leg L-sit (alternating)", dose: "4 × 8 sec / side", seconds: 8, perSide: true, cue: "Straight leg locked, toes pointed. Push tall." },
+      { name: "Hanging knee raises", dose: "3 × 8", seconds: null, cue: "Active shoulders, no swing, knees above hips, slow down. The front-lever pattern in a hang." },
+      { name: "Seated pike lifts — hands at knees", dose: "3 × 10", seconds: null, cue: "Compression is a strength — it grows with reps at the end range." },
+      { name: "Side plank with hip dips", dose: "2 × 10 / side", seconds: null, cue: "Controlled up and down. No sagging at the top." },
+    ],
+  },
+  {
+    name: "L-sit",
+    gate: "Advance when: L-sit 3 × 15s (chairs/parallettes) · 8 straight-leg hanging raises to 90° · 3 slow dragon-flag negatives.",
+    short: [
+      { name: "L-sit hold", dose: "4 × 10 sec", seconds: 10, cue: "Both legs straight. Chairs or parallettes. Lock knees, push shoulders down hard." },
+      { name: "Hanging leg raises (straight)", dose: "2 × 6", seconds: null, cue: "To 90° at least. Lower in 3s. Lats engaged — this IS front-lever core." },
+      { name: "Floor pike lifts — hands by hips", dose: "2 × 8", seconds: null, cue: "The hardest compression position. Even 1cm of heel lift counts." },
+    ],
+    full: [
+      { name: "L-sit hold", dose: "4 × 12 sec", seconds: 12, cue: "Quality over seconds. Stop when the knees bend." },
+      { name: "Hanging leg raises (straight)", dose: "3 × 6", seconds: null, cue: "No swing; pause at the top." },
+      { name: "Dragon-flag negatives", dose: "3 × 3", seconds: null, cue: "Grip a post/bench behind your head, lower a straight body in 4–5s. Bend knees to scale. The front-lever body line under load." },
+      { name: "Ring rollouts from knees", dose: "3 × 6", seconds: null, cue: "Rings low; hollow shape, roll out until the line is about to break, pull back with the lats." },
+      { name: "Floor pike lifts — hands by hips", dose: "3 × 8", seconds: null, cue: "Squeeze the hip flexors, not the lower back." },
+    ],
+  },
+  {
+    name: "Floor L-sit → V",
+    gate: "Mastery path: floor L-sit 20s · strict toes-to-bar ×8 · full dragon flags ×5. Then: straddle-L, tuck V-sit, and keep refining.",
+    short: [
+      { name: "Floor L-sit", dose: "4 × 10 sec", seconds: 10, cue: "On the floor, hands by hips. Heels clear the ground — compression + shoulders." },
+      { name: "Strict toes-to-bar", dose: "3 × 5", seconds: null, cue: "No kip. Lats pull the body into a pike. Slow down." },
+      { name: "L-sit compression pulses", dose: "2 × 6", seconds: null, cue: "From the L, lift the legs a few cm higher and lower. Builds toward the V." },
+    ],
+    full: [
+      { name: "Floor L-sit", dose: "4 × 15 sec", seconds: 15, cue: "Push tall. Point the toes." },
+      { name: "Strict toes-to-bar", dose: "3 × 6", seconds: null, cue: "Strict — the front lever's best core assistance." },
+      { name: "Dragon flags", dose: "3 × 4", seconds: null, cue: "Full reps, straight body, control both ways." },
+      { name: "Standing ring rollouts (partial)", dose: "3 × 5", seconds: null, cue: "Rings mid-height, roll only as far as the hollow holds." },
+      { name: "Straddle-L / tuck V attempts", dose: "5 × 5 sec", seconds: 5, cue: "Play at the next shape. Short, sharp, fresh." },
+    ],
+  },
+];
+
+// Level tracks: which ladder a levelled bonus pulls from.
+const KIND_COLOR = { skill: "#2e6e8e", mobility: "#6a8d3f", core: "#a8642a" };
+const LEVEL_TRACKS = {
+  hs: { levels: HS_BONUS_LEVELS, prep: HANDSTAND_WRIST_PREP, work: "balance work", color: KIND_COLOR.skill,
+    foot: "Wrist prep every time. Advance a level only when the gate above is met cleanly — skill is gated by control, not reps logged." },
+  core: { levels: CORE_BONUS_LEVELS, prep: CORE_PREP, work: "core & compression", color: KIND_COLOR.core,
+    foot: "Every level trains compression, the hollow line and shoulder depression. Stop each set 1–2 reps short. Advance only when the whole gate is met with clean form — the L-sit and front lever follow." },
+};
+const trackLevel = (track, levels) => Math.min(levels?.[track] ?? 0, LEVEL_TRACKS[track].levels.length - 1);
+const bonusEntry = (s, date, levels) => ({ date, id: s.id, title: s.title, kind: s.kind, minutes: s.minutes,
+  ...(s.levelled ? { level: trackLevel(s.track, levels) + 1 } : {}) });
+
 const BONUS_SESSIONS = [
   {
     id: "hs-touch",
     title: "Handstand touch-up",
     minutes: 5,
     kind: "skill",
-    levelled: true,        // pulls balance content from HS_BONUS_LEVELS[level].short
+    levelled: true, track: "hs",   // pulls balance content from HS_BONUS_LEVELS[level].short
     variant: "short",
     blurb: "Short, fresh handstand reps. Frequency is the active ingredient — this is how the skill actually progresses, not just maintains. Do it FRESH, early in the day.",
   },
@@ -220,7 +312,7 @@ const BONUS_SESSIONS = [
     title: "Handstand skill block",
     minutes: 15,
     kind: "skill",
-    levelled: true,        // pulls from HS_BONUS_LEVELS[level].full
+    levelled: true, track: "hs",   // pulls from HS_BONUS_LEVELS[level].full
     variant: "full",
     blurb: "A fuller skill dose for days you have time. Still low fatigue — skill work doesn't compete with your priority quality the way extra strength would.",
   },
@@ -239,19 +331,22 @@ const BONUS_SESSIONS = [
     ],
   },
   {
-    id: "back-care",
-    title: "Back-care core (bike support)",
+    id: "core-short",
+    title: "Core & compression",
     minutes: 8,
-    kind: "mobility",
-    blurb: "Anti-extension core endurance — directly targets the erector-spinae fatigue you get on the aggressive bike position. Low fatigue, high carryover. Sub-maximal: endurance, not a grind.",
-    groups: [
-      { group: "Trunk endurance", items: [
-        { name: "Front plank", dose: "3 × 30 sec", seconds: 30, cue: "Ribs down, glutes on, neutral spine. Build the endurance the bike demands." },
-        { name: "Dead bug", dose: "2 × 8 / side", seconds: null, cue: "Low back glued to floor, opposite arm/leg extend slowly. Anti-extension control." },
-        { name: "Bird dog", dose: "2 × 8 / side", seconds: null, cue: "Reach long, no rotation through the hips. Trains the erectors to stabilise without overworking." },
-        { name: "Side plank", dose: "2 × 20 sec / side", seconds: 20, perSide: true, cue: "Stacks the lateral chain — the other half of trunk stability on the bike." },
-      ]},
-    ],
+    kind: "core",
+    levelled: true, track: "core",
+    variant: "short",
+    blurb: "The L-sit / front-lever engine in 8 min: compression, hollow line, pushing the floor away. Also covers the bike's lower-back demand. Sub-maximal — leave a rep in the tank.",
+  },
+  {
+    id: "core-full",
+    title: "Core & compression — full",
+    minutes: 15,
+    kind: "core",
+    levelled: true, track: "core",
+    variant: "full",
+    blurb: "The fuller dose for light days: adds hanging work, lateral core and (from Lv 3) dragon flags. Best on rest, mobility or handstand days — not right before a pull session.",
   },
   {
     id: "split-snack",
@@ -274,7 +369,7 @@ const BONUS_SESSIONS = [
 // a nudge so they don't get forgotten.
 const BONUS_TARGETS = [
   { key: "hs", label: "Handstand", ids: ["hs-touch", "hs-skill-15"], target: 3, color: "#2e6e8e" },
-  { key: "core", label: "Core", ids: ["back-care"], target: 2, color: "#6a8d3f" },
+  { key: "core", label: "Core", ids: ["core-short", "core-full", "back-care"], target: 3, color: KIND_COLOR.core },
 ];
 // Which bonus fits which day, by the planned session's type. Main days get only the
 // 5-min touch-up (do it FRESH, before the session or early in the day); lighter days
@@ -282,13 +377,13 @@ const BONUS_TARGETS = [
 function bonusFor(session) {
   const t = session?.type, title = (session?.title || "").toLowerCase();
   if (t === "main") return ["hs-touch"];
-  if (t === "short" && title.includes("handstand")) return ["back-care"];
-  if (t === "short") return ["hs-skill-15", "back-care"];
-  return ["hs-skill-15", "back-care"];                 // open / rest days
+  if (t === "short" && title.includes("handstand")) return ["core-short"];
+  if (t === "short") return ["core-full", "hs-touch"];   // mobility day: compression fits right in
+  return ["hs-skill-15", "core-full"];                 // open / rest days
 }
 const bonusById = (id) => BONUS_SESSIONS.find((b) => b.id === id);
 
-const BONUS_NOTE = "Bonuses are optional and complementary — skill and mobility only, on purpose. They're logged separately so they never distort your planned-session tracking. The rule of thumb: if you have spare energy, spend it here (the things the plan under-serves), not on extra strength volume — even in the Strength block, recovery is the limiter, not the number of sets.";
+const BONUS_NOTE = "Bonuses are optional and complementary — skill, core and mobility only, on purpose (core work is kept sub-maximal so it builds the L-sit/front-lever base without eating the main sessions' recovery). They're logged separately so they never distort your planned-session tracking. The rule of thumb: if you have spare energy, spend it here (the things the plan under-serves), not on extra strength volume — even in the Strength block, recovery is the limiter, not the number of sets.";
 
 // ============================================================================
 // PROGRAM DEFINITION — 3 blocks x 8 weeks
@@ -506,7 +601,7 @@ const fmtDate = (iso) => parseIso(iso).toLocaleDateString(undefined, { weekday: 
 // Local-first: every change saves to this device immediately, then pushes in the
 // background. The server merges per key (newest edit wins), so a sauna logged on
 // the laptop and sets logged on the phone both survive.
-const SYNC_KEYS = ["logs", "saunas", "rides", "done", "deloads", "swaps", "bonusLog", "hsTier", "hsBonusLevel", "sets", "startDate", "readiness", "targets"];
+const SYNC_KEYS = ["logs", "saunas", "rides", "done", "deloads", "swaps", "bonusLog", "hsTier", "hsBonusLevel", "coreBonusLevel", "sets", "startDate", "readiness", "targets"];
 const isEmptyVal = (v) => v == null || (Array.isArray(v) ? v.length === 0 : typeof v === "object" ? Object.keys(v).length === 0 : false);
 const localGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const localSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
@@ -525,6 +620,7 @@ export default function TrainingApp() {
   const [bonusLog, setBonusLog] = useState([]);      // [{date, id, title, kind, minutes}]
   const [hsTier, setHsTier] = useState(0);
   const [hsBonusLevel, setHsBonusLevel] = useState(0);
+  const [coreBonusLevel, setCoreBonusLevel] = useState(0);
   const [sets, setSets] = useState({});              // { "W3-1|Weighted pull-ups": {date, week, ex, kind, reps:[..], kg, feel, target, planned, readiness} }
   const [readiness, setReadiness] = useState({});    // { "2026-09-28": {sleep, stress} }
   const [targets, setTargets] = useState({});        // { "L-sit hold": {sec, date} } manual hold-target overrides
@@ -536,7 +632,7 @@ export default function TrainingApp() {
   const [sync, setSync] = useState({ state: localGet("syncToken") ? "idle" : "off" });
 
   const setters = { logs: setLogs, saunas: setSaunas, rides: setRides, done: setDone, deloads: setDeloads, swaps: setSwaps,
-    bonusLog: setBonusLog, hsTier: setHsTier, hsBonusLevel: setHsBonusLevel, sets: setSets, startDate: setStartDateRaw,
+    bonusLog: setBonusLog, hsTier: setHsTier, hsBonusLevel: setHsBonusLevel, coreBonusLevel: setCoreBonusLevel, sets: setSets, startDate: setStartDateRaw,
     readiness: setReadiness, targets: setTargets };
   const dataRef = useRef({});      // latest value of every synced key (closures go stale; refs don't)
   const metaRef = useRef({});      // key -> last-edited ms on this device
@@ -570,7 +666,7 @@ export default function TrainingApp() {
       const loadedVals = {
         startDate: sd, logs: await safeGet("logs", []), saunas: await safeGet("saunas", []), rides: await safeGet("rides", []),
         done: await safeGet("done", {}), deloads: await safeGet("deloads", {}), swaps: await safeGet("swaps", {}),
-        bonusLog: await safeGet("bonusLog", []), hsTier: await safeGet("hsTier", 0), hsBonusLevel: await safeGet("hsBonusLevel", 0),
+        bonusLog: await safeGet("bonusLog", []), hsTier: await safeGet("hsTier", 0), hsBonusLevel: await safeGet("hsBonusLevel", 0), coreBonusLevel: await safeGet("coreBonusLevel", 0),
         sets: await safeGet("sets", {}), readiness: await safeGet("readiness", {}), targets: await safeGet("targets", {}),
       };
       for (const [k, v] of Object.entries(loadedVals)) { setters[k](v); dataRef.current[k] = v; }
@@ -623,7 +719,7 @@ export default function TrainingApp() {
   const persist = (k) => (v) => { setters[k](v); save(k, v); };
   const persistLogs = persist("logs"), persistSaunas = persist("saunas"), persistRides = persist("rides"),
     persistDone = persist("done"), persistDeloads = persist("deloads"), persistSwaps = persist("swaps"),
-    persistBonusLog = persist("bonusLog"), persistHsTier = persist("hsTier"), persistHsBonusLevel = persist("hsBonusLevel"),
+    persistBonusLog = persist("bonusLog"), persistHsTier = persist("hsTier"), persistHsBonusLevel = persist("hsBonusLevel"), persistCoreBonusLevel = persist("coreBonusLevel"),
     persistSets = persist("sets"), persistReadiness = persist("readiness"), persistTargets = persist("targets"),
     persistStartDate = persist("startDate");
 
@@ -635,6 +731,8 @@ export default function TrainingApp() {
   const accent = (view === "week" ? block : curBlock).accent;
   const isDeloadW = (w) => !!deloads[w];
   const curRamp = rampFor(currentWeek);
+  const bonusLevels = { hs: hsBonusLevel, core: coreBonusLevel };
+  const setBonusLevel = (track, i) => (track === "core" ? persistCoreBonusLevel(i) : persistHsBonusLevel(i));
   const openBonus = () => { setLogSub("bonus"); setView("log"); window.scrollTo?.(0, 0); };
   const todayLevel = readinessLevel(readiness[todayKey()]);
 
@@ -663,7 +761,7 @@ export default function TrainingApp() {
 
   const exportData = () => {
     const payload = { version: 2, cycleVersion: CYCLE_VERSION, exportedAt: new Date().toISOString(), startDate, currentWeek,
-      logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel, sets, readiness, targets };
+      logs, saunas, rides, done, deloads, swaps, bonusLog, hsTier, hsBonusLevel, coreBonusLevel, sets, readiness, targets };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -694,6 +792,7 @@ export default function TrainingApp() {
         if (d.readiness && typeof d.readiness === "object") persistReadiness(d.readiness);
         if (typeof d.hsTier === "number") persistHsTier(d.hsTier);
         if (typeof d.hsBonusLevel === "number") persistHsBonusLevel(d.hsBonusLevel);
+        if (typeof d.coreBonusLevel === "number") persistCoreBonusLevel(d.coreBonusLevel);
         alert(sameCycle ? "Data imported successfully." : "Imported logs from an earlier cycle. Week progress was left as-is (different block order).");
       } catch (err) {
         alert("Couldn't read that file — make sure it's a training-data export.");
@@ -737,7 +836,7 @@ export default function TrainingApp() {
           <div style={{ display: view === "today" ? "block" : "none" }}>
             <TodayView week={currentWeek} accent={curBlock.accent} isDeload={isDeloadW(currentWeek)} ramp={curRamp} rides={rides}
               srcForDay={srcFor(currentWeek)} readiness={readiness} setReadiness={persistReadiness} cardProps={cardProps}
-              bonusLog={bonusLog} setBonusLog={persistBonusLog} hsLevel={hsBonusLevel} openBonus={openBonus} />
+              bonusLog={bonusLog} setBonusLog={persistBonusLog} levels={bonusLevels} openBonus={openBonus} />
           </div>
           <div style={{ display: view === "week" ? "block" : "none" }}>
             <WeekView week={week} currentWeek={currentWeek} setViewWeek={setViewWeek} accent={block.accent} block={block}
@@ -745,7 +844,7 @@ export default function TrainingApp() {
               ramp={rampFor(week)} rides={rides} srcForDay={srcFor(week)} swapDays={swapDays} resetWeekSwaps={resetWeekSwaps}
               hasSwaps={Object.keys(swapsFor(week)).length > 0} hardDayWarnings={hardDayWarnings} cardProps={cardProps}
               weekMonday={addDays(mondayOf(startDate), 7 * (week - 1))} bonusLog={bonusLog} setBonusLog={persistBonusLog}
-              hsLevel={hsBonusLevel} openBonus={openBonus} />
+              levels={bonusLevels} openBonus={openBonus} />
           </div>
           {view === "log" && (
             <div style={S.body}>
@@ -757,11 +856,11 @@ export default function TrainingApp() {
               </div>
               {logSub === "cardio" && <RideView rides={rides} setRides={persistRides} accent={curBlock.accent} block={curBlock} week={currentWeek} />}
               {logSub === "sauna" && <SaunaView saunas={saunas} setSaunas={persistSaunas} accent={curBlock.accent} />}
-              {logSub === "bonus" && <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={curBlock.accent} hsLevel={hsBonusLevel} setHsLevel={persistHsBonusLevel} />}
+              {logSub === "bonus" && <BonusView bonusLog={bonusLog} setBonusLog={persistBonusLog} accent={curBlock.accent} levels={bonusLevels} setLevel={setBonusLevel} />}
             </div>
           )}
           {view === "progress" && <ProgressView logs={logs} setLogs={persistLogs} sets={sets} accent={curBlock.accent} />}
-          {view === "coach" && <CoachView week={currentWeek} block={curBlock} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog}
+          {view === "coach" && <CoachView week={currentWeek} block={curBlock} logs={logs} saunas={saunas} rides={rides} bonusLog={bonusLog} coreLevel={coreBonusLevel}
             isDeload={isDeloadW(currentWeek)} ramp={curRamp} accent={curBlock.accent} sets={sets} targets={targets} setTargets={persistTargets}
             readiness={readiness} setDeload={() => persistDeloads({ ...deloads, [currentWeek]: true })} />}
         </>
@@ -939,7 +1038,7 @@ function ReadinessCheck({ value, onChange, accent }) {
   );
 }
 
-function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, setReadiness, cardProps, bonusLog, setBonusLog, hsLevel, openBonus }) {
+function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, setReadiness, cardProps, bonusLog, setBonusLog, levels, openBonus }) {
   const block = blockForWeek(week);
   const td = new Date().getDay();
   const tm = (td + 1) % 7;
@@ -950,7 +1049,7 @@ function TodayView({ week, accent, isDeload, ramp, rides, srcForDay, readiness, 
     <div style={S.body}>
       <ReadinessCheck value={readiness[tk]} onChange={(v) => setReadiness({ ...readiness, [tk]: v })} accent={accent} />
       <SessionCard label={swapped(td) ? "TODAY · swapped" : "TODAY"} dayKey={td} week={week} session={get(td)} accent={accent} big {...cardProps} />
-      <BonusStrip date={tk} session={get(td)} bonusLog={bonusLog} setBonusLog={setBonusLog} hsLevel={hsLevel} accent={accent} openBonus={openBonus} />
+      <BonusStrip date={tk} session={get(td)} bonusLog={bonusLog} setBonusLog={setBonusLog} levels={levels} accent={accent} openBonus={openBonus} />
       <FloorCard block={block} week={week} rides={rides} compact />
       <SessionCard label={swapped(tm) ? "TOMORROW · swapped" : "TOMORROW"} dayKey={tm} week={week} session={get(tm)} accent={accent} compact {...cardProps} />
       <div style={{ ...S.tagBox, borderColor: accent }}>
@@ -1002,7 +1101,7 @@ function BonusWeekCard({ weekMonday, bonusLog, accent, openBonus }) {
 
 // Per-day bonus chips under a session card. Tap to log for that date (today or
 // past); tap a ticked chip to remove that entry. Future days show the suggestion only.
-function BonusStrip({ date, session, bonusLog, setBonusLog, hsLevel, accent, openBonus }) {
+function BonusStrip({ date, session, bonusLog, setBonusLog, levels, accent, openBonus }) {
   const today = todayKey();
   const future = date > today;
   const ids = bonusFor(session);
@@ -1013,7 +1112,7 @@ function BonusStrip({ date, session, bonusLog, setBonusLog, hsLevel, accent, ope
     const idx = log.map((b, i) => (b.date === date && b.id === id ? i : -1)).filter((i) => i >= 0).pop();
     if (idx !== undefined) { setBonusLog(log.filter((_, i) => i !== idx)); return; }
     const s = bonusById(id);
-    setBonusLog([...log, { date, id: s.id, title: s.title, kind: s.kind, minutes: s.minutes, ...(s.levelled ? { level: (hsLevel ?? 0) + 1 } : {}) }]);
+    setBonusLog([...log, bonusEntry(s, date, levels)]);
   };
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: "7px 4px 2px" }}>
@@ -1021,12 +1120,12 @@ function BonusStrip({ date, session, bonusLog, setBonusLog, hsLevel, accent, ope
       {ids.map((id) => {
         const s = bonusById(id); if (!s) return null;
         const done = log.some((b) => b.date === date && b.id === id);
-        const c = s.kind === "skill" ? "#2e6e8e" : "#6a8d3f";
+        const c = KIND_COLOR[s.kind] || KIND_COLOR.mobility;
         return (
           <button key={id} onClick={() => toggle(id)} title={future ? "Open the routine" : done ? "Tap to undo" : "Tap to log as done"}
             style={{ fontSize: 11.5, fontWeight: 700, fontFamily: FONT_BODY, padding: "3px 9px", borderRadius: 999, cursor: "pointer",
               border: `1px ${future ? "dashed" : "solid"} ${c}66`, background: done ? c : c + "12", color: done ? "#fff" : c }}>
-            {done ? "✓ " : ""}{s.title.replace(" (bike support)", "")} · {s.minutes}′
+            {done ? "✓ " : ""}{s.title.replace("Core & compression — full", "Core & compression")}{s.levelled ? ` L${trackLevel(s.track, levels) + 1}` : ""} · {s.minutes}′
           </button>
         );
       })}
@@ -1046,7 +1145,7 @@ function slotStatus(id, session, done, sets, level) {
   return { isDone, auto, logged, total: loggable.length };
 }
 
-function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, toggleDeload, ramp, rides, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, cardProps, weekMonday, bonusLog, setBonusLog, hsLevel, openBonus }) {
+function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, toggleDeload, ramp, rides, srcForDay, swapDays, resetWeekSwaps, hasSwaps, hardDayWarnings, cardProps, weekMonday, bonusLog, setBonusLog, levels, openBonus }) {
   const order = [1, 2, 3, 4, 5, 6, 0];
   const dateFor = (k) => addDays(weekMonday, (k + 6) % 7);
   const get = (k) => shapeSession(daySession(block, week, srcForDay(k)), isDeload, ramp);
@@ -1120,7 +1219,7 @@ function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, tog
                   {isPicking ? "✕ cancel" : isTarget ? `⇄ swap with ${DAY_NAMES[swapMode]}` : "⇄"}
                 </button>
               } />
-            <BonusStrip date={dateFor(k)} session={get(k)} bonusLog={bonusLog} setBonusLog={setBonusLog} hsLevel={hsLevel} accent={accent} openBonus={openBonus} />
+            <BonusStrip date={dateFor(k)} session={get(k)} bonusLog={bonusLog} setBonusLog={setBonusLog} levels={levels} accent={accent} openBonus={openBonus} />
           </div>
         );
       })}
@@ -1599,18 +1698,18 @@ function RoutineGroup({ group, accent }) {
   );
 }
 
-function BonusCard({ session, accent, onLog, todayCount, hsLevel, setHsLevel }) {
+function BonusCard({ session, accent, onLog, todayCount, levels, setLevel }) {
   const [open, setOpen] = useState(false);
-  const kindColor = session.kind === "skill" ? "#2e6e8e" : "#6a8d3f";
+  const kindColor = KIND_COLOR[session.kind] || KIND_COLOR.mobility;
 
-  // Build the routine groups: levelled handstand sessions pull from HS_BONUS_LEVELS;
-  // others use their static groups.
-  let groups, levelInfo = null;
+  // Levelled sessions pull from their track's ladder (handstand or core); others use static groups.
+  let groups, levelInfo = null, T = null;
   if (session.levelled) {
-    const lvl = Math.min(hsLevel ?? 0, HS_BONUS_LEVELS.length - 1);
-    const L = HS_BONUS_LEVELS[lvl];
+    T = LEVEL_TRACKS[session.track];
+    const lvl = trackLevel(session.track, levels);
+    const L = T.levels[lvl];
     levelInfo = { idx: lvl, ...L };
-    groups = [HANDSTAND_WRIST_PREP, { group: `${L.name} — balance work`, items: session.variant === "full" ? L.full : L.short }];
+    groups = [T.prep, { group: `${L.name} — ${T.work}`, items: session.variant === "full" ? L.full : L.short }];
   } else {
     groups = session.groups;
   }
@@ -1622,10 +1721,10 @@ function BonusCard({ session, accent, onLog, todayCount, hsLevel, setHsLevel }) 
           <h2 style={{ ...S.cardTitle, marginBottom: 2 }}>{session.title}</h2>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
             <span style={{ ...S.bonusTag, background: kindColor + "1a", color: kindColor, borderColor: kindColor + "55" }}>
-              {session.kind === "skill" ? "skill" : "mobility"}
+              {session.kind}
             </span>
             <span style={S.bonusMins}>~{session.minutes} min</span>
-            {levelInfo && <span style={{ ...S.bonusTag, background: "#2e6e8e1a", color: "#2e6e8e", borderColor: "#2e6e8e55" }}>Lv {levelInfo.idx + 1} · {levelInfo.name}</span>}
+            {levelInfo && <span style={{ ...S.bonusTag, background: T.color + "1a", color: T.color, borderColor: T.color + "55" }}>Lv {levelInfo.idx + 1} · {levelInfo.name}</span>}
             {todayCount > 0 && <span style={{ ...S.bonusTag, background: accent + "1a", color: accent, borderColor: accent + "55" }}>✓ done today{todayCount > 1 ? ` ×${todayCount}` : ""}</span>}
           </div>
         </div>
@@ -1640,9 +1739,9 @@ function BonusCard({ session, accent, onLog, todayCount, hsLevel, setHsLevel }) 
           {levelInfo && (
             <>
               <div style={S.tierRow}>
-                {HS_BONUS_LEVELS.map((L, i) => (
-                  <button key={i} onClick={() => setHsLevel(i)}
-                    style={{ ...S.tierBtn, ...(i === levelInfo.idx ? { background: "#2e6e8e", color: "#fff", borderColor: "#2e6e8e" } : {}) }}>
+                {T.levels.map((L, i) => (
+                  <button key={i} onClick={() => setLevel(session.track, i)} title={L.name}
+                    style={{ ...S.tierBtn, ...(i === levelInfo.idx ? { background: T.color, color: "#fff", borderColor: T.color } : {}) }}>
                     Lv {i + 1}
                   </button>
                 ))}
@@ -1651,7 +1750,7 @@ function BonusCard({ session, accent, onLog, todayCount, hsLevel, setHsLevel }) 
             </>
           )}
           {groups.map((g, gi) => <RoutineGroup key={gi} group={g} accent={accent} />)}
-          {levelInfo && <div style={S.routineFootnote}>Wrist prep every time. Advance a level only when the gate above is met cleanly — skill is gated by control, not reps logged.</div>}
+          {levelInfo && <div style={S.routineFootnote}>{T.foot}</div>}
         </div>
       )}
       <button onClick={onLog} style={{ ...S.bonusLogBtn, background: accent }}>
@@ -1661,9 +1760,9 @@ function BonusCard({ session, accent, onLog, todayCount, hsLevel, setHsLevel }) 
   );
 }
 
-function BonusView({ bonusLog, setBonusLog, accent, hsLevel, setHsLevel }) {
+function BonusView({ bonusLog, setBonusLog, accent, levels, setLevel }) {
   const today = todayKey();
-  const logToday = (s) => setBonusLog([...bonusLog, { date: today, id: s.id, title: s.title, kind: s.kind, minutes: s.minutes, ...(s.levelled ? { level: (hsLevel ?? 0) + 1 } : {}) }]);
+  const logToday = (s) => setBonusLog([...bonusLog, bonusEntry(s, today, levels)]);
   const undoLast = () => setBonusLog(bonusLog.slice(0, -1));
   const countToday = (id) => bonusLog.filter((b) => b.date === today && b.id === id).length;
 
@@ -1672,6 +1771,7 @@ function BonusView({ bonusLog, setBonusLog, accent, hsLevel, setHsLevel }) {
   const last7 = bonusLog.filter((b) => b.date >= weekAgo);
   const skillCount = last7.filter((b) => b.kind === "skill").length;
   const mobCount = last7.filter((b) => b.kind === "mobility").length;
+  const coreCount = last7.filter((b) => b.kind === "core" || b.id === "back-care").length;
   const totalMin = last7.reduce((n, b) => n + (b.minutes || 0), 0);
   const recent = [...bonusLog].reverse().slice(0, 10);
 
@@ -1683,6 +1783,7 @@ function BonusView({ bonusLog, setBonusLog, accent, hsLevel, setHsLevel }) {
 
       <div style={S.bonusStats}>
         <div style={S.bonusStat}><div style={{ ...S.bonusStatNum, color: "#2e6e8e" }}>{skillCount}</div><div style={S.bonusStatLbl}>skill · 7d</div></div>
+        <div style={S.bonusStat}><div style={{ ...S.bonusStatNum, color: KIND_COLOR.core }}>{coreCount}</div><div style={S.bonusStatLbl}>core · 7d</div></div>
         <div style={S.bonusStat}><div style={{ ...S.bonusStatNum, color: "#6a8d3f" }}>{mobCount}</div><div style={S.bonusStatLbl}>mobility · 7d</div></div>
         <div style={S.bonusStat}><div style={{ ...S.bonusStatNum, color: accent }}>{totalMin}</div><div style={S.bonusStatLbl}>min · 7d</div></div>
       </div>
@@ -1691,7 +1792,7 @@ function BonusView({ bonusLog, setBonusLog, accent, hsLevel, setHsLevel }) {
 
       {BONUS_SESSIONS.map((s) => (
         <BonusCard key={s.id} session={s} accent={accent} onLog={() => logToday(s)} todayCount={countToday(s.id)}
-          hsLevel={hsLevel} setHsLevel={setHsLevel} />
+          levels={levels} setLevel={setLevel} />
       ))}
 
       {recent.length > 0 && (
@@ -2152,7 +2253,7 @@ function ProgressionPanel({ sets, targets, setTargets, readiness, isDeload, setD
   );
 }
 
-function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp, accent, sets, targets, setTargets, readiness, setDeload }) {
+function CoachView({ week, block, logs, saunas, rides, bonusLog, coreLevel, isDeload, ramp, accent, sets, targets, setTargets, readiness, setDeload }) {
   // Day-aware bonus suggestion: pick the most fitting side-quest for today's context.
   const bonusSuggestion = (() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -2166,7 +2267,7 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp,
     const isOpenOrShort = todaySession?.type === "open" || todaySession?.type === "short";
 
     if (rodeHardToday && !didMobToday)
-      return "You rode hard today — the Back-care core or Daily mobility bonus would aid recovery and ease the lower back.";
+      return "You rode hard today — the Daily mobility bonus would aid recovery and ease the lower back.";
     if (isOpenOrShort && !didSkillToday)
       return "Light day today and fresh — a great window for the Handstand touch-up. Frequency is what progresses the skill.";
     if (isMainDay && !didMobToday)
@@ -2197,7 +2298,7 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, isDeload, ramp,
     const wkMon = rides.filter((r) => r.date >= mondayKey());
     const rideSummary = wkMon.length ? `${weekAerobic(rides)} easy-aerobic min since Monday over ${wkMon.length} sessions (${wkMon.filter(r=>r.kind==="hill").length} hill climbs, ${wkMon.filter(r=>r.kind==="walk").length} walks, ${wkMon.filter(r=>r.effort==="Hard").length} hard)` : "none since Monday";
     const wkBonus = (bonusLog || []).filter((b) => b.date >= weekAgo);
-    const bonusSummary = wkBonus.length ? `${wkBonus.filter(b=>b.kind==="skill").length} skill + ${wkBonus.filter(b=>b.kind==="mobility").length} mobility this week` : "none this week";
+    const bonusSummary = wkBonus.length ? `${wkBonus.filter(b=>b.kind==="skill").length} skill + ${wkBonus.filter(b=>b.kind==="core").length} core + ${wkBonus.filter(b=>b.kind==="mobility").length} mobility this week (target: handstand 3, core 3)` : "none this week";
     const since = addDays(todayKey(), -14);
     const setLines = Object.values(sets || {}).filter((e) => e.date >= since && vals(e).length)
       .sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-30)
@@ -2214,7 +2315,7 @@ SETS (last 14 days, logged per exercise; holds in seconds): ${setLines.length ? 
 PROGRESSION ENGINE (rule-based, already applied in the app): ${sigLines.length ? sigLines.join("; ") : "no data yet"}. Rules: holds +5s after 2 clean sessions (1 if felt easy), −5s after 2 short sessions on normal days, capped at 2× plan (then progress the variation); reps use double progression (all sets at top of range → +2.5kg or harder variation; under the floor twice → ease off). Low-readiness days can raise but never lower targets.
 READINESS: today ${todayR ? `sleep ${todayR.sleep || "?"}, stress ${todayR.stress || "?"} → ${readinessLevel(todayR)}` : "no check-in"}; ${rs.low} low of ${rs.answered} check-ins in 7 days. Readiness scales only the day's sets (trim ¾, easy ½).
 When reading progress: build on the engine's signals, explain the why, and only recommend overriding them with a concrete reason (pain, technique breakdown, a pattern across several exercises or weeks). Prefer stability: one session is noise, two agree is a signal, a week of convergent signals justifies a deload.
-BONUS: optional short skill+mobility side-quests (no extra strength by design — it competes with the block priority). Encourage handstand-skill frequency and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
+BONUS: optional short skill, core and mobility side-quests. Core & compression is levelled (Lv ${(coreLevel ?? 0) + 1}/4: foundation → one-leg L-sit → L-sit → floor L-sit/V) and serves his L-sit + front-lever goals — keep it sub-maximal, never right before a pull session. Handstand bonus is levelled too. No extra limb-strength volume by design. Encourage handstand-skill frequency, core 3×/week and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
 STYLE: practical, <120 words unless asked. Concrete adjustments. Flag recovery conflicts. Don't invent data. Not medical advice; caution with pain.`;
     try {
       const res = await fetch("/api/chat", {
