@@ -35,7 +35,9 @@ export function exKind(ex) {
   if (/intervals?$|circuit|PNF/i.test(ex.name)) return null;
   return "reps";
 }
-export const isLoadable = (ex) => /weight|squat|deadlift|dip|lunge/i.test(ex.name);
+export const isLoadable = (ex) => /weight|squat|deadlift|dip|lunge|cable/i.test(ex.name);
+// lower-body lifts can take bigger jumps when a session felt easy
+const isLower = (ex) => /squat|deadlift|lunge/i.test(ex.name);
 
 // ---- readiness (day level) ----
 export const READINESS = {
@@ -117,6 +119,7 @@ export function repProgression(ex, store, excludeKey) {
   const loadable = isLoadable(ex);
   const es = entriesFor(store, ex.name, excludeKey);
   let bad = 0, last = null;
+  const step = (e) => (isLower(ex) && e.feel === "easy" ? 5 : 2.5);
   for (const e of es) {
     const v = vals(e), need = e.planned || d.sets;
     const low = e.readiness && e.readiness !== "full";
@@ -126,8 +129,8 @@ export function repProgression(ex, store, excludeKey) {
       bad = 0;
       last = e.feel === "hard"
         ? { dir: "hold", date: e.date, text: `Top of the range, but it felt hard — repeat ${e.kg ? kgTxt(e.kg) : "this"} once more before moving up` }
-        : { dir: "up", date: e.date, kg: loadable ? (e.kg || 0) + 2.5 : null,
-            text: loadable ? `Every set at ${d.hi}+ — go to ${kgTxt((e.kg || 0) + 2.5)} next time`
+        : { dir: "up", date: e.date, kg: loadable ? (e.kg || 0) + step(e) : null,
+            text: loadable ? `Every set at ${d.hi}+${step(e) > 2.5 ? " and it felt easy" : ""} — go to ${kgTxt((e.kg || 0) + step(e))} next time`
                            : `Every set at ${d.hi}+ — step to a harder variation, or slow the lowering to 3 s` };
     } else if (under && low) {
       last = { dir: "hold", date: e.date, text: "Short on a low-readiness day — doesn't count against you" };

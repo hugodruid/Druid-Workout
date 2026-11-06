@@ -378,6 +378,7 @@ function bonusFor(session) {
   const t = session?.type, title = (session?.title || "").toLowerCase();
   if (t === "main") return ["hs-touch"];
   if (t === "short" && title.includes("handstand")) return ["core-short"];
+  if (t === "short" && title.includes("front lever")) return ["hs-touch"];   // already a core/compression day
   if (t === "short") return ["core-full", "hs-touch"];   // mobility day: compression fits right in
   return ["hs-skill-15", "core-full"];                 // open / rest days
 }
@@ -386,12 +387,38 @@ const bonusById = (id) => BONUS_SESSIONS.find((b) => b.id === id);
 const BONUS_NOTE = "Bonuses are optional and complementary — skill, core and mobility only, on purpose (core work is kept sub-maximal so it builds the L-sit/front-lever base without eating the main sessions' recovery). They're logged separately so they never distort your planned-session tracking. The rule of thumb: if you have spare energy, spend it here (the things the plan under-serves), not on extra strength volume — even in the Strength block, recovery is the limiter, not the number of sets.";
 
 // ============================================================================
-// PROGRAM DEFINITION — 3 blocks x 8 weeks
+// PROGRAM DEFINITION — Strength extended to 12 weeks (Nov 2026), then 8 + 8
 // dayKey: 0=Sun ... 6=Sat (matches JS getDay)
+// A block can hold `phases`: from week `from` (week-within-block) its fields
+// (days, weekOverrides, tag, aerobicFloor) replace the block's — see blockForWeek.
 // ============================================================================
+const TOTAL_WEEKS = 28;
+
+// HSPU ladder toward freestanding. Move up a rung when every set hits the top of
+// the range cleanly (the progression engine says "step to a harder variation").
+const HSPU_LADDER = [
+  { rung: "1 · Wall HSPU, full range", gate: "5 × 6 clean — done (Oct 2026)" },
+  { rung: "2 · Deficit wall HSPU", gate: "Hands on blocks / parallettes, head below hand level. Start ~5 cm, build to ~10 cm at 3 × 6" },
+  { rung: "3 · Freestanding negatives", gate: "Kick up freestanding, lower in 3–5 s, step down. Needs a reliable 20–30 s freestanding hold first" },
+  { rung: "4 · Freestanding partial HSPU", gate: "To a stack of mats / a cushion, shrinking the stack over weeks" },
+  { rung: "5 · Freestanding HSPU", gate: "Head to floor and back — the goal" },
+];
+
+const VO2_SESSION = {
+  type: "main", title: "VO2max — 4 × 4 min", sauna: "good",
+  body: "Daylight session. Hill run, or the climb on the second bike: 10 min easy → 4 × (4 min hard / 3 min easy) → 5 min easy. Not the day before a gym session.",
+  exercises: [
+    { name: "Warm-up", dose: "10 min easy", seconds: 600, cue: "Build gradually; last 2 min near interval pace." },
+    { name: "4 × 4 min intervals", dose: "4 rounds", cue: "Hard = 8–9/10: breathing heavily, only a few words possible — but the 4th rep should be as strong as the 1st. Uphill running is gentler on joints than flat.",
+      interval: { work: 240, rest: 180, rounds: 4, workLabel: "HARD", restLabel: "easy" } },
+    { name: "Cool-down", dose: "5 min easy", seconds: 300, cue: "Let the heart rate drift down. Log it with ⚡ in Log → Cardio." },
+  ],
+};
+
 const BLOCKS = [
   {
-    id: "strength", name: "Strength", weeks: [1, 8], accent: "#2e6e8e",
+    id: "strength", name: "Strength", weeks: [1, 12], accent: "#2e6e8e",
+    deloadWeeks: [11],   // planned deload (week-within-block); toggle in the Week tab still overrides
     tag: "Rebuild first, then overload. Weeks 1–2 are re-entry after the break; real progression starts week 3. Heavy legs are the gap bodyweight can't fill.",
     // Endurance in a strength block = a floor, not a goal.
     //  1. Every week: 60–90 min EASY aerobic time. Main vehicle: the evening hill
@@ -436,9 +463,65 @@ const BLOCKS = [
       6: { type: "open", title: "Open / easy ride or hike", body: "Rest, or an easy ride/hike. Counts toward your aerobic floor (2 easy rides/week). Keep it conversational — hard rides eat the recovery the lifting needs.", sauna: "best" },
       0: { type: "open", title: "Open / rest", body: "Full rest. Easy bike commutes alone keep an aerobic floor under you.", sauna: "best" },
     },
+    // PHASE 2 (weeks 7–12): 3 sessions/week is the real limit — 2 gym + 1 VO2max,
+    // everything bodyweight moves into 15-min sessions (skills improve with frequency).
+    // Exercise names that already have history are kept verbatim so the progression
+    // engine carries on from your logged sets.
+    phases: [
+      {
+        from: 7,
+        tag: "Phase 2 (w7–12): 2 gym sessions + 1 VO2max session; everything else is 15-minute skill work. Weight goes up only when every set hits the top of the range (+2.5 kg, +5 kg on legs when it felt easy). Week 11 is a planned deload, week 12 a re-test before deciding what's next. Days are a default — swap freely, just keep ~48 h between the two gym days.",
+        aerobicFloor: { min: 35, max: 90, touchWeeks: [7, 8, 9, 10, 11, 12], vo2: true,
+          text: "The weekly VO2 session (~35 min) covers the floor on its own; easy walks or rides on top are a bonus, not a must." },
+        days: {
+          1: { type: "main", title: "Gym A — squat + pull", sauna: "avoid",
+            body: "Back squat 4×6–8 superset with weighted pull-ups 4×4–6 · Bulgarian split squat 3×8–10/leg · straight-arm cable pulldown 3×10–12. ~50 min.",
+            exercises: [
+              { name: "Back squat", dose: "4 × 6–8", cue: "First session: ramp up (bar × 8, then +10 kg jumps) until a set of 8 leaves ~2 reps in the tank — that's your working weight. Likely ~50–60 kg given 40 kg goblet × 12 felt easy, but let the ramp decide. 2–3 min rest." },
+              { name: "Weighted pull-ups", dose: "4 × 4–6", cue: "Superset: do a pull-up set in the middle of each squat rest. You already hit 5 × 6 at bodyweight — start with +2.5 kg on the dip belt. Full hang, chin over bar." },
+              { name: "Bulgarian split squat", dose: "3 × 8–10/leg", cue: "Rear foot on a bench, dumbbells in hand. Start light — balance first, load second. Front knee tracks over the foot." },
+              { name: "Straight-arm cable pulldown", dose: "3 × 10–12", cue: "THE front-lever builder. Arms straight, pull the bar to your thighs by driving the shoulder blades down — no elbow bend. 3 s return." },
+            ] },
+          2: { type: "short", title: "Handstand + HSPU · 15'", sauna: "ideal",
+            body: "Wrist prep · handstand balance · HSPU on your ladder rung. Fresh, short, quality.",
+            exercises: [
+              { name: "Wrist prep", dose: "2 min", seconds: 120, cue: "Circles, palm and finger-back stretches, rocks. Your injury insurance before loading." },
+              { name: "Handstand balance", dose: "6 min", seconds: 360, cue: "Freestanding attempts at your handstand bonus level. Stop each attempt when the line breaks — a wobbly handstand grooves a wobbly handstand." },
+              { name: "HSPU progression", dose: "3 × 4–6", cue: "On your current ladder rung, full rest between sets. When every set hits 6 cleanly, move up a rung.", ladder: HSPU_LADDER },
+            ] },
+          3: { type: "short", title: "Front lever + L-sit · 15'", sauna: "ideal",
+            body: "Front lever FIRST while fresh (rings) · negatives · pike compression · L-sit. Not the day after Gym A if your lats are still sore — swap it.",
+            exercises: [
+              { name: "Front-lever progression", dose: "4 × 10 sec", seconds: 10, cue: "On the rings, first thing. Advanced tuck = flat back, hips level with shoulders. If a hold breaks, finish that set in tuck — clean holds only." },
+              { name: "Front-lever negatives", dose: "3 × 3–5", cue: "From an inverted hang, lower through advanced tuck as slowly as you can (aim 5 s). Builds the strength the holds can't yet." },
+              { name: "Pike compression lifts", dose: "3 × 8–10", cue: "Seated pike, hands on the floor beside the knees. Lift both heels and hold a beat. Trains the ACTIVE flexibility the L-sit needs." },
+              { name: "L-sit hold", dose: "3 × 15 sec", seconds: 15, cue: "On blocks or parallettes so you can push the floor away. Shoulders down, legs straight. Tuck one leg to scale." },
+            ] },
+          4: { type: "main", title: "Gym B — hinge + push", sauna: "avoid",
+            body: "Romanian deadlift 4×6–8 superset with weighted dips 4×6–8 · lunges 3×8–10/leg · cable row 3×8–10. ~50 min.",
+            exercises: [
+              { name: "Romanian deadlifts", dose: "4 × 6–8", cue: "Barbell now. Ramp to a set of 8 with ~2 reps left — 40 kg × 12 felt easy, so expect well above that. Hinge, soft knees, bar close to the legs." },
+              { name: "Dips / weighted dips", dose: "4 × 6–8", cue: "Superset with the RDL. Add load once 8 is clean on every set. Shoulders down, don't sink into the bottom." },
+              { name: "Walking lunges", dose: "3 × 8–10/leg", cue: "Dumbbells. Reverse lunges in place if the gym floor is busy — log them here either way." },
+              { name: "Cable row", dose: "3 × 8–10", cue: "Chest up, pull to the lower ribs, squeeze the shoulder blades together. Balances all the pressing." },
+            ] },
+          5: { type: "open", title: "Open / rest", sauna: "best",
+            body: "Rest, or a 15' bonus (handstand or core) if you're fresh. Tomorrow is the VO2 session — keep today easy." },
+          6: VO2_SESSION,
+          0: { type: "open", title: "Open / 15' skill", sauna: "best",
+            body: "Rest, or a handstand skill block. Keep it light — Monday is legs." },
+        },
+        weekOverrides: {
+          // first VO2 week: shorter reps to rebuild after a month without hard cardio
+          7: { 6: { ...VO2_SESSION, title: "VO2max — 4 × 3 min (intro)",
+            body: "First week back: 10 min easy → 4 × (3 min hard / 3 min easy) → 5 min easy. Next week the reps grow to 4 min.",
+            exercises: VO2_SESSION.exercises.map((e) => e.interval ? { ...e, name: "4 × 3 min intervals", interval: { ...e.interval, work: 180 } } : e) } },
+        },
+      },
+    ],
   },
   {
-    id: "endurance", name: "Endurance", weeks: [9, 16], accent: "#d9543f",
+    id: "endurance", name: "Endurance", weeks: [13, 20], accent: "#d9543f",
     tag: "Built on the strength base. VO2max is the weak link — intervals are the protected session; strength drops to maintenance.",
     days: {
       1: { type: "main", title: "Intervals", body: "10 min warm-up → 6–8 × (1 min hard / 90 sec easy) → 5 min cool-down. Add one interval/week (cap 10).", sauna: "good",
@@ -462,7 +545,7 @@ const BLOCKS = [
     },
   },
   {
-    id: "flexibility", name: "Flexibility", weeks: [17, 24], accent: "#6a8d3f",
+    id: "flexibility", name: "Flexibility", weeks: [21, 28], accent: "#6a8d3f",
     tag: "Specific end-ranges: splits + deeper hip rotation. Loaded, frequent, sub-maximal.",
     days: {
       1: { type: "main", title: "Front splits", body: "Hip-flexor & hamstring PNF · lunge-stretch prog · active leg raises (strength in new range = permanent).", sauna: "best",
@@ -499,9 +582,11 @@ const HILL_INTERVALS = { work: 60, rest: 120, rounds: 4, workLabel: "HARD", rest
 const QUICK_LOGS = [
   { kind: "hill", icon: "⛰", label: "Hill climb", km: 2.3, effort: "Easy", minKey: "hillMins", defMin: 15, note: "Easy climb home" },
   { kind: "walk", icon: "🚶", label: "Hill walk", km: 2.3, effort: "Easy", minKey: "walkMins", defMin: 38, note: "Walked up the hill" },
-  { kind: "hill-intervals", icon: "⚡", label: "Hill intervals", km: 2.3, effort: "Hard", minKey: "hillMins", defMin: 15, note: "4 × 1 min hard / 2 min easy", touchOnly: true },
+  { kind: "hill-intervals", icon: "⚡", label: "Hill intervals", km: 2.3, effort: "Hard", minKey: "hillMins", defMin: 15, note: "4 × 1 min hard / 2 min easy", touchOnly: true, notVo2: true },
+  { kind: "vo2", icon: "⚡", label: "VO2 4 × 4", km: 0, effort: "Hard", minKey: "vo2Mins", defMin: 35, note: "4 × 4 min hard / 3 min easy", vo2Only: true },
 ];
-const KIND_ICON = { hill: "⛰", walk: "🚶", "hill-intervals": "⚡", ride: "🚲" };
+const VO2_INTERVALS = { work: 240, rest: 180, rounds: 4, workLabel: "HARD", restLabel: "easy" };
+const KIND_ICON = { hill: "⛰", walk: "🚶", "hill-intervals": "⚡", vo2: "⚡", ride: "🚲" };
 
 // Local Monday (YYYY-MM-DD) of the current week — the floor resets Monday.
 function mondayKey() {
@@ -537,7 +622,17 @@ const TYPE_LABEL = { main: "Main session", short: "Short session", open: "Open d
 
 // ---------- helpers ----------
 function blockForWeek(week) {
-  return BLOCKS.find((b) => week >= b.weeks[0] && week <= b.weeks[1]) || BLOCKS[0];
+  const b = BLOCKS.find((x) => week >= x.weeks[0] && week <= x.weeks[1]) || BLOCKS[0];
+  const wib = week - b.weeks[0] + 1;
+  const ph = (b.phases || []).filter((p) => wib >= p.from).pop();
+  if (!ph) return b;
+  const { from, ...fields } = ph;
+  return { ...b, ...fields, weekOverrides: ph.weekOverrides || {} };
+}
+// planned deload weeks come from the block; an explicit toggle (true/false) wins
+function plannedDeload(week) {
+  const b = blockForWeek(week);
+  return !!b.deloadWeeks?.includes(week - b.weeks[0] + 1);
 }
 function todayKey() {
   const d = new Date();
@@ -593,7 +688,7 @@ const addDays = (iso, n) => { const d = parseIso(iso); d.setDate(d.getDate() + n
 const mondayOf = (iso) => { const d = parseIso(iso); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return isoLocal(d); };
 function weekFromStart(startIso) {
   const days = Math.round((parseIso(todayKey()) - parseIso(mondayOf(startIso))) / DAY_MS);
-  return Math.min(24, Math.max(1, Math.floor(days / 7) + 1));
+  return Math.min(TOTAL_WEEKS, Math.max(1, Math.floor(days / 7) + 1));
 }
 const fmtDate = (iso) => parseIso(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 
@@ -729,7 +824,7 @@ export default function TrainingApp() {
   const curBlock = blockForWeek(currentWeek);
   const block = blockForWeek(week);
   const accent = (view === "week" ? block : curBlock).accent;
-  const isDeloadW = (w) => !!deloads[w];
+  const isDeloadW = (w) => (deloads[w] !== undefined ? !!deloads[w] : plannedDeload(w));
   const curRamp = rampFor(currentWeek);
   const bonusLevels = { hs: hsBonusLevel, core: coreBonusLevel };
   const setBonusLevel = (track, i) => (track === "core" ? persistCoreBonusLevel(i) : persistHsBonusLevel(i));
@@ -966,7 +1061,7 @@ function FloorCard({ block, week, rides, compact }) {
   const f = block.aerobicFloor; if (!f) return null;
   const mins = weekAerobic(rides);
   const touch = isTouchWeek(block, week);
-  const touchDone = (rides || []).some((r) => r.date >= mondayKey() && r.kind === "hill-intervals");
+  const touchDone = (rides || []).some((r) => r.date >= mondayKey() && (r.kind === "hill-intervals" || r.kind === "vo2"));
   const RED = "#d9543f";
   const pct = Math.min(100, (mins / f.max) * 100);
   const status = mins >= f.max ? "Floor covered — more isn't needed this block."
@@ -975,7 +1070,7 @@ function FloorCard({ block, week, rides, compact }) {
   return (
     <div style={{ ...S.tagBox, borderColor: RED }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <strong style={{ color: RED }}>Easy aerobic this week</strong>
+        <strong style={{ color: RED }}>{f.vo2 ? "Aerobic this week" : "Easy aerobic this week"}</strong>
         <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 18, color: mins >= f.min ? "#6a8d3f" : RED }}>
           {mins}<span style={{ fontSize: 12, color: "#9a958c" }}> / {f.min}–{f.max} min</span>
         </span>
@@ -987,7 +1082,9 @@ function FloorCard({ block, week, rides, compact }) {
       <div style={{ fontSize: 12.5, marginTop: 6 }}>{status}{!compact && ` ${f.text}`}</div>
       {touch && (
         <div style={{ fontSize: 12.5, marginTop: 6, color: touchDone ? "#6a8d3f" : "#8a5a1e" }}>
-          {touchDone ? "✓ Hill intervals done this week." : "⚡ Interval week: one evening, ride the hill as 4 × (1 min hard / 2 min easy). Best Tue or Fri — not the evening before legs. Skip if sleep or stress is off."}
+          {f.vo2
+            ? (touchDone ? "✓ VO2 session done this week." : "⚡ One VO2 session this week (4 × 4 min) — Saturday by default, never the day before a gym session.")
+            : (touchDone ? "✓ Hill intervals done this week." : "⚡ Interval week: one evening, ride the hill as 4 × (1 min hard / 2 min easy). Best Tue or Fri — not the evening before legs. Skip if sleep or stress is off.")}
         </div>
       )}
     </div>
@@ -1158,7 +1255,7 @@ function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, tog
     if (swapMode === k) { setSwapMode(null); return; }
     swapDays(swapMode, k); setSwapMode(null);
   };
-  const go = (w) => { setSwapMode(null); setViewWeek(w === currentWeek ? null : Math.min(24, Math.max(1, w))); };
+  const go = (w) => { setSwapMode(null); setViewWeek(w === currentWeek ? null : Math.min(TOTAL_WEEKS, Math.max(1, w))); };
 
   return (
     <div style={S.body}>
@@ -1171,7 +1268,7 @@ function WeekView({ week, currentWeek, setViewWeek, accent, block, isDeload, tog
             {" · "}{completed}/7 done
           </div>
         </div>
-        <button style={S.stepBtn} onClick={() => go(week + 1)} disabled={week >= 24}>›</button>
+        <button style={S.stepBtn} onClick={() => go(week + 1)} disabled={week >= TOTAL_WEEKS}>›</button>
       </div>
 
       <div style={S.deloadRow}>
@@ -1465,6 +1562,7 @@ function ExerciseList({ exercises, accent, session, level, slotId, week, sets, s
               <span style={S.routineDose}>{it.dose}</span>
             </div>
             <div style={S.routineCue}>{it.cue}</div>
+            {it.ladder && <LadderList ladder={it.ladder} accent={accent} />}
             {kind && <SetLogger ex={it} kind={kind} slotId={slotId} week={week} store={sets || {}} setStore={setSets}
               targets={targets || {}} setTargets={setTargets} factor={factor} level={level} accent={accent} />}
             {!kind && it.seconds && <DrillTimer seconds={it.seconds} perSide={it.perSide} accent={accent} />}
@@ -1472,6 +1570,28 @@ function ExerciseList({ exercises, accent, session, level, slotId, week, sets, s
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// A variation ladder (e.g. HSPU → freestanding): collapsed by default, one rung per line.
+function LadderList({ ladder, accent }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button onClick={() => setOpen(!open)} style={{ ...S.routineToggle, color: accent, borderColor: accent + "44" }}>
+        {open ? "▾ Hide ladder" : "▸ Ladder to freestanding"}
+      </button>
+      {open && (
+        <ol style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 13, lineHeight: 1.45 }}>
+          {ladder.map((r) => (
+            <li key={r.rung} style={{ marginBottom: 6 }}>
+              <strong>{r.rung.replace(/^\d+ · /, "")}</strong>
+              <div style={{ color: "#7a756c" }}>{r.gate}</div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -1968,7 +2088,7 @@ function ProgressView({ logs, setLogs, sets, accent }) {
 // ---------------- Sauna logger ----------------
 function RideView({ rides, setRides, accent, block, week }) {
   // typical durations for the one-tap presets — editable, remembered on this device
-  const [mins, setMins] = useState({ hillMins: 15, walkMins: 38 });
+  const [mins, setMins] = useState({ hillMins: 15, walkMins: 38, vo2Mins: 35 });
   useEffect(() => { (async () => {
     try { const v = await Store.get("quickMins"); if (v) setMins((m) => ({ ...m, ...JSON.parse(v) })); } catch (e) {}
   })(); }, []);
@@ -1977,6 +2097,8 @@ function RideView({ rides, setRides, accent, block, week }) {
   const [flash, setFlash] = useState(null);
   const [showTimer, setShowTimer] = useState(false);
   const touch = isTouchWeek(block, week) || !block.aerobicFloor;   // intervals: planned weeks, or any week outside the Strength block
+  const vo2 = !!block.aerobicFloor?.vo2;
+  const showQuick = (q) => (q.vo2Only ? vo2 : q.notVo2 && vo2 ? false : !q.touchOnly || touch);
 
   const quickLog = (q) => {
     const m = Number(mins[q.minKey]) || q.defMin;
@@ -2022,7 +2144,7 @@ function RideView({ rides, setRides, accent, block, week }) {
       <div style={S.card}>
         <h2 style={S.cardTitle}>One-tap log</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {QUICK_LOGS.filter((q) => !q.touchOnly || touch).map((q) => (
+          {QUICK_LOGS.filter(showQuick).map((q) => (
             <div key={q.kind} style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
               <button onClick={() => quickLog(q)}
                 style={{ ...S.primaryBtn, flex: 1, textAlign: "left", fontSize: 15, padding: "14px 16px",
@@ -2048,11 +2170,13 @@ function RideView({ rides, setRides, accent, block, week }) {
           <>
             <button onClick={() => setShowTimer(!showTimer)}
               style={{ ...S.routineToggle, color: "#d9543f", borderColor: "#d9543f44", marginTop: 8 }}>
-              {showTimer ? "▾ Hide hill-interval timer" : "▸ Hill-interval timer · 4 × 1 min hard / 2 min easy"}
+              {showTimer ? "▾ Hide interval timer" : vo2 ? "▸ VO2 timer · 4 × 4 min hard / 3 min easy" : "▸ Hill-interval timer · 4 × 1 min hard / 2 min easy"}
             </button>
             {showTimer && <>
-              <p style={{ ...S.muted2, marginTop: 8 }}>Start at the bottom. Hard ≈ 8/10 — controlled, not all-out. The goal is a reminder, not exhaustion. Log it with ⚡ when you're home.</p>
-              <IntervalTimer config={HILL_INTERVALS} accent="#d9543f" />
+              <p style={{ ...S.muted2, marginTop: 8 }}>{vo2
+                ? "Warm up 10 min first. Hard ≈ 8–9/10 — only a few words possible, but the last rep as strong as the first. Log it with ⚡ when you're home."
+                : "Start at the bottom. Hard ≈ 8/10 — controlled, not all-out. The goal is a reminder, not exhaustion. Log it with ⚡ when you're home."}</p>
+              <IntervalTimer config={vo2 ? VO2_INTERVALS : HILL_INTERVALS} accent="#d9543f" />
             </>}
           </>
         )}
@@ -2166,7 +2290,9 @@ function SaunaView({ saunas, setSaunas, accent }) {
 // ============================================================================
 const ALL_EXERCISES = (() => {
   const m = new Map();
-  BLOCKS.forEach((b) => Object.values(b.days).forEach((d) => (d.exercises || []).forEach((ex) => { if (exKind(ex) && !m.has(ex.name)) m.set(ex.name, ex); })));
+  // newest phase first, so an exercise's current prescription (dose, cue) wins over an older one
+  const dayMaps = BLOCKS.flatMap((b) => [...(b.phases || []).map((p) => p.days).reverse(), b.days]);
+  dayMaps.forEach((days) => Object.values(days).forEach((d) => (d.exercises || []).forEach((ex) => { if (exKind(ex) && !m.has(ex.name)) m.set(ex.name, ex); })));
   return [...m.values()];
 })();
 
@@ -2307,12 +2433,12 @@ function CoachView({ week, block, logs, saunas, rides, bonusLog, coreLevel, isDe
     const rs = readinessStats(readiness);
     const todayR = readiness?.[todayKey()];
     const system = `You are a concise S&C coach in a training app.
-PROGRAM: 24-week concurrent, CYCLE 2, 8-week blocks — Strength(w1-8), Endurance(w9-16), Flexibility(w17-24). One priority/block, others maintain (~1/3 vol).
-CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Endurance in this block is a floor: 60-90 easy aerobic min/week. Main vehicle is the evening bike climb home (2.3km, +139m, ~6%, ~15min) — keep it easy (lowest gear, nose breathing). Uphill walk (~38min) is the winter/ice fallback. Main bike under repair; morning commute is dark, so no long commutes for now. Weeks 4, 6, 8: ride the hill once as 4×(1min hard/2min easy), ideally Tue or Fri, not the evening before Wed legs; skip if sleep/stress is poor. No other hard rides. Weekly: Mon/Wed/Fri main ~45min, Tue/Thu short skill+mobility, Sat/Sun open. Bodyweight-first; intermediate athlete (8-10 HSPU, 12 pull-ups, full lotus, endurance weak). Has pull-up bar, sauna, work gym, a second bike for short rides; plans rings+kettlebell.
+PROGRAM: 28-week concurrent, CYCLE 2 — Strength(w1-12, extended from 8 in Nov 2026 because he was still progressing), Endurance(w13-20), Flexibility(w21-28). One priority/block, others maintain (~1/3 vol).
+CONTEXT: Cycle 1 (endurance-first) stopped at week 5 when high work stress plus VO2max intervals exceeded his recovery; then ~3 months off. Aerobic gains largely gone, strength starting to fade. The coming months will be intense in life, so favour sustainable load: training stress and life stress share one recovery budget. Strength weeks 1-2 are a re-entry ramp (w1 ~half sets RPE6, w2 ~3/4 sets RPE7, no added load); normal progression from w3. Endurance in this block is a floor: 60-90 easy aerobic min/week. Main vehicle is the evening bike climb home (2.3km, +139m, ~6%, ~15min) — keep it easy (lowest gear, nose breathing). Uphill walk (~38min) is the winter/ice fallback. Main bike under repair; morning commute is dark, so no long commutes for now. Weeks 4, 6, 8: ride the hill once as 4×(1min hard/2min easy), ideally Tue or Fri, not the evening before Wed legs; skip if sleep/stress is poor. No other hard rides. Weeks 1-6: Mon push / Wed legs / Fri pull, all ~45min. PHASE 2 (weeks 7-12, current structure from w7): his hard limit is 3 sessions/week and going to the gym 3x was too much to organise (missed sessions were busyness, not fatigue). So: Gym A Mon (back squat 4x6-8 superset weighted pull-ups 4x4-6, Bulgarian split squat, straight-arm cable pulldown), Gym B Thu (barbell RDL 4x6-8 superset weighted dips 4x6-8, lunges, cable row), VO2max Sat (4x4 min hard/3 min easy, hill run or bike; week 7 = 4x3 intro), plus 15-min sessions: Tue handstand + HSPU (ladder toward freestanding HSPU, his big goal; he's on deficit wall HSPU next), Wed front lever (advanced tuck, on rings, done FIRST — his limiter is lats/shoulders, not core) + L-sit with pike compression (passive flexibility is excellent, active compression is the gap). Days are defaults; he swaps freely — keep ~48h between gym days and VO2 away from the day before a gym day. Week 11 planned deload, week 12 re-test. Load progresses gradually by double progression (he prefers small safe jumps). Winter: no bike commuting; VO2 had been neglected for a month before w7. Intermediate-advanced bodyweight athlete (wall HSPU 5x6, pull-ups 5x6 BW, full lotus, endurance/VO2max is the weak point). Has a terrace bar with a flat grip (fine for pull-ups only), gymnastic rings (new), dip belt, sauna; gym has squat rack + cable machine.
 RECOVERY/SAUNA: best on rest/cardio/short days; not right after heavy strength (blunts hypertrophy signal); before stretching deepens range. ~48h between HARD same-tissue sessions; sub-maximal skill/mobility can be daily.
 STATE: week ${week}, ${block.name} block${isDeload ? ", DELOAD WEEK (cut volume ~40-50%, reps in reserve)" : ramp ? `, ${ramp.label}: ${ramp.text}` : ""}. Logs: ${logSummary}. Sauna: ${saunaSummary}. Bike: ${rideSummary}. Bonus: ${bonusSummary}.
 SETS (last 14 days, logged per exercise; holds in seconds): ${setLines.length ? setLines.join("; ") : "none yet"}.
-PROGRESSION ENGINE (rule-based, already applied in the app): ${sigLines.length ? sigLines.join("; ") : "no data yet"}. Rules: holds +5s after 2 clean sessions (1 if felt easy), −5s after 2 short sessions on normal days, capped at 2× plan (then progress the variation); reps use double progression (all sets at top of range → +2.5kg or harder variation; under the floor twice → ease off). Low-readiness days can raise but never lower targets.
+PROGRESSION ENGINE (rule-based, already applied in the app): ${sigLines.length ? sigLines.join("; ") : "no data yet"}. Rules: holds +5s after 2 clean sessions (1 if felt easy), −5s after 2 short sessions on normal days, capped at 2× plan (then progress the variation); reps use double progression (all sets at top of range → +2.5kg, +5kg on lower-body lifts that felt easy, or harder variation; under the floor twice → ease off). Low-readiness days can raise but never lower targets.
 READINESS: today ${todayR ? `sleep ${todayR.sleep || "?"}, stress ${todayR.stress || "?"} → ${readinessLevel(todayR)}` : "no check-in"}; ${rs.low} low of ${rs.answered} check-ins in 7 days. Readiness scales only the day's sets (trim ¾, easy ½).
 When reading progress: build on the engine's signals, explain the why, and only recommend overriding them with a concrete reason (pain, technique breakdown, a pattern across several exercises or weeks). Prefer stability: one session is noise, two agree is a signal, a week of convergent signals justifies a deload.
 BONUS: optional short skill, core and mobility side-quests. Core & compression is levelled (Lv ${(coreLevel ?? 0) + 1}/4: foundation → one-leg L-sit → L-sit → floor L-sit/V) and serves his L-sit + front-lever goals — keep it sub-maximal, never right before a pull session. Handstand bonus is levelled too. No extra limb-strength volume by design. Encourage handstand-skill frequency, core 3×/week and daily mobility; these are what the plan under-serves. Don't add strength volume beyond the plan — recovery, not sets, is the limiter right now. If he reports high life stress or poor sleep, suggest trimming volume before skipping sessions. Today's fitting bonus: ${bonusSuggestion}
